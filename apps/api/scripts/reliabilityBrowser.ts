@@ -12,7 +12,7 @@ process.env.DATABASE_PATH = path.join(temp, "test.db"); process.env.STORAGE_PATH
 process.env.OLLAMA_BASE_URL = "http://127.0.0.1:1"; process.env.APPLYLITE_TEST_MODE = "true";
 const database = await import("../src/db/database.js"); database.initializeDatabase();
 const { cvRoutes } = await import("../src/routes/cv.js"); const { profileRoutes } = await import("../src/routes/profile.js");
-const api = Fastify(); await api.register(cors, { origin: true }); await api.register(multipart); await api.register(cvRoutes); await api.register(profileRoutes);
+const api = Fastify(); await api.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }); await api.register(multipart); await api.register(cvRoutes); await api.register(profileRoutes);
 api.get("/experience/summary", async () => ({ totalYears: 0, technicalYears: 0, parseableEmploymentCount: 0, scoringDefaultYears: 0, scoringSource: "unknown" }));
 api.get("/automation/mappings", async () => []);
 await api.listen({ port: 4310, host: "127.0.0.1" });
@@ -26,8 +26,10 @@ const server = http.createServer((req, res) => {
 });
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+const artifacts = path.resolve(process.cwd(), "../../.test-artifacts"); fs.mkdirSync(artifacts, { recursive: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1366, height: 900 } }); const errors: string[] = [];
+  const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}`);
   await page.getByRole("button", { name: "CV intelligence", exact: true }).click();
@@ -38,6 +40,7 @@ try {
   await page.getByRole("button", { name: "Add education entry", exact: true }).click();
   await page.getByLabel("Qualification", { exact: true }).fill("Diploma in Accounting");
   await page.getByLabel("Institution", { exact: true }).fill("Example College");
+  await page.screenshot({ path: path.join(artifacts, "cv-review.png"), fullPage: true });
   await page.getByRole("button", { name: "Save reviewed facts", exact: true }).click();
   await page.getByRole("button", { name: "Merge reviewed facts into Profile", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Profile updated" }).waitFor();
@@ -52,10 +55,15 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("input")].some(el => el.value === "Accounts Assistant, Bookkeeper"));
   assert.equal(await page.getByLabel("Email", { exact: true }).inputValue(), "person@example.invalid");
   assert.equal(await page.getByLabel("Preferred locations", { exact: true }).inputValue(), "Ireland, Remote");
+  await page.screenshot({ path: path.join(artifacts, "profile.png"), fullPage: true });
   const stored = database.db.prepare("SELECT data_json FROM profile WHERE id=1").get() as { data_json: string };
   assert.deepEqual(JSON.parse(stored.data_json).targetTitles, ["Accounts Assistant", "Bookkeeper"]);
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log("Browser regression PASS: offline CV import, education edit, review, merge, and comma-separated profile targets survive reload.");
+} catch (error) {
+  console.error("Browser state:", (await page.locator("body").innerText()).slice(-10000));
+  await page.screenshot({ path: path.join(artifacts, "failure.png"), fullPage: true });
+  throw error;
 } finally {
   await browser.close(); await api.close(); await new Promise<void>(resolve => server.close(() => resolve())); database.db.close();
   fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

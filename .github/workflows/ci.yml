@@ -16,6 +16,7 @@ jobs:
           node-version: 24
           cache: npm
       - name: Install locked dependencies
+        id: dependencies
         run: npm ci
       - name: Check PowerShell syntax
         shell: powershell
@@ -35,11 +36,26 @@ jobs:
       - name: Gmail regression (synthetic fixtures)
         run: npm run regression:m10
       - name: Install test browser
+        id: browser
         run: npx playwright install chromium
       - name: CV and Profile browser regression
+        timeout-minutes: 4
         run: npm run regression:browser -w @apply-lite/api
       - name: Form and recovery regression
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        timeout-minutes: 4
         run: npm run regression:m9
       - name: Data-preserving updater regression
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 4
         shell: powershell
         run: ./scripts/Test-Update.ps1
+      - name: Upload synthetic browser screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-browser
+          path: .test-artifacts/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
