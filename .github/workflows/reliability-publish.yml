@@ -1,11 +1,45 @@
-name: Prepare reliability update
+name: Materialize reliability branch
 on:
-  workflow_dispatch:
+  push:
+    branches: [fix/cv-profile-update-reliability]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  prepare:
+  materialize:
+    if: github.repository == 'allanrodz/ApplyLite' && github.ref == 'refs/heads/fix/cv-profile-update-reliability'
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Release validation preparation only"
+        with:
+          ref: fix/cv-profile-update-reliability
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed source edits with before and after checksums
+        run: python .maintenance/apply-reliability.py
+      - name: Commit only verified tracked source edits to the feature branch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          if ! git diff --cached --quiet; then
+            git commit -m 'Apply verified CV, matching and update reliability source edits'
+            git push origin HEAD:fix/cv-profile-update-reliability
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - run: npm run regression:m10
+      - run: npx playwright install chromium
+      - run: npm run regression:browser -w @apply-lite/api
+      - run: npm run regression:m9
+      - name: Windows updater regression
+        shell: powershell
+        run: ./scripts/Test-Update.ps1
