@@ -1,0 +1,51 @@
+# Dependencies and build output
+node_modules/
+dist/
+.vite/
+playwright-report/
+test-results/
+
+# Local configuration and secrets (matches at any level)
+.env
+.env.*
+!.env.example
+.secrets/
+
+# SQLite and user career data
+*.db
+*.db-shm
+*.db-wal
+
+# Root runtime paths (legacy/manual launches)
+data/*
+!data/.gitkeep
+storage/*
+!storage/generated/
+storage/generated/*
+!storage/generated/.gitkeep
+backups/
+exports/
+.maintenance/
+
+# API workspace runtime paths (normal npm workspace launch)
+apps/api/data/*
+!apps/api/data/.gitkeep
+apps/api/storage/*
+!apps/api/storage/generated/
+apps/api/storage/generated/*
+!apps/api/storage/generated/.gitkeep
+apps/api/backups/
+apps/api/exports/
+apps/api/.maintenance/
+apps/api/.secrets/
+apps/api/.env
+
+# Local migration backups
+pre-migration-backup-*/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.log
+
+*.tsbuildinfo

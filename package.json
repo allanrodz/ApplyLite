@@ -1,0 +1,26 @@
+{
+  "name": "apply-lite",
+  "version": "0.14.7",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w @apply-lite/shared && concurrently -n api,web -c auto \"npm run dev -w @apply-lite/api\" \"npm run dev -w @apply-lite/web\"",
+    "dev:api": "npm run build -w @apply-lite/shared && npm run dev -w @apply-lite/api",
+    "dev:web": "npm run dev -w @apply-lite/web",
+    "build": "npm run build -w @apply-lite/shared && npm run build -w @apply-lite/api && npm run build -w @apply-lite/web",
+    "typecheck": "npm run build -w @apply-lite/shared && npm run typecheck -w @apply-lite/api && npm run typecheck -w @apply-lite/web",
+    "regression:m9": "npm run build -w @apply-lite/shared && npm run regression:m9 -w @apply-lite/api",
+    "regression:m10": "npm run build -w @apply-lite/shared && npm run regression:m10 -w @apply-lite/api",
+    "regression:discovery": "npm run build -w @apply-lite/shared && npm run regression:discovery -w @apply-lite/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

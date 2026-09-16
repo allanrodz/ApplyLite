@@ -1,0 +1,87 @@
+import { useEffect, useState } from "react";
+import { ProfileSchema, type AutofillMapping, type Profile } from "@apply-lite/shared";
+import { API_BASE, api } from "../lib/api";
+
+type ExperienceSummary = {
+  totalYears: number;
+  technicalYears: number;
+  parseableEmploymentCount: number;
+  scoringDefaultYears: number;
+  scoringSource: string;
+};
+
+export function ProfilePage() {
+  const [profile, setProfile] = useState<Profile>(ProfileSchema.parse({}));
+  const [experience, setExperience] = useState<ExperienceSummary | null>(null);
+  const [message, setMessage] = useState("");
+  const [mappings, setMappings] = useState<AutofillMapping[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    Promise.all([api<Profile>("/profile"), api<ExperienceSummary>("/experience/summary"), api<AutofillMapping[]>("/automation/mappings")])
+      .then(([savedProfile, summary, learnedMappings]) => { setProfile(savedProfile); setExperience(summary); setMappings(learnedMappings); })
+      .catch((e) => setMessage(e.message));
+  }, []);
+
+  const csv = (value: string[]) => value.join(", ");
+  const parseCsv = (value: string) => value.split(",").map((v) => v.trim()).filter(Boolean);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const saved = await api<Profile>("/profile", { method: "PUT", body: JSON.stringify(profile) });
+      setProfile(saved);
+      setMessage("Profile saved locally.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Could not save profile");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <header className="page-header"><div><span className="eyebrow">SOURCE OF TRUTH</span><h1>Candidate profile</h1><p>These facts drive scoring and browser autofill. M4.1 also learns how employer forms label these fields.</p></div></header>
+      {message && <div className="notice">{message}</div>}
+      <section className="profile-readiness">
+        <div><span>Local API</span><strong>{API_BASE}</strong></div>
+        <div><span>Autofill identity</span><strong>{[profile.firstName, profile.lastName, profile.email, profile.city, profile.country].filter((value) => value.trim()).length}/5 core fields</strong></div>
+        <div><span>Learned form mappings</span><strong>{mappings.length}</strong></div>
+      </section>
+      {experience && (
+        <section className="panel experience-profile">
+          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.technicalYears} years technical experience</strong></div>
+          <div><span>All dated employment</span><strong>{experience.totalYears} years</strong></div>
+          <div><span>Employment ranges parsed</span><strong>{experience.parseableEmploymentCount}</strong></div>
+          <p>Job-specific scoring now derives relevant experience from your employment dates. The manual Years experience field remains a fallback only when CV evidence cannot be calculated.</p>
+        </section>
+      )}
+      <form className="panel" onSubmit={save}>
+        <div className="form-grid">
+          <label>First name<input value={profile.firstName} onChange={(e) => setProfile({ ...profile, firstName: e.target.value })} /></label>
+          <label>Last name<input value={profile.lastName} onChange={(e) => setProfile({ ...profile, lastName: e.target.value })} /></label>
+          <label>Email<input type="email" autoComplete="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></label>
+          <label>Phone<input type="tel" autoComplete="tel" value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} /></label>
+          <label>City<input value={profile.city} onChange={(e) => setProfile({ ...profile, city: e.target.value })} /></label>
+          <label>Country<input value={profile.country} onChange={(e) => setProfile({ ...profile, country: e.target.value })} /></label>
+          <label>Current title<input value={profile.currentTitle} onChange={(e) => setProfile({ ...profile, currentTitle: e.target.value })} /></label>
+          <label>Years experience<input type="number" min="0" value={profile.yearsExperience} onChange={(e) => setProfile({ ...profile, yearsExperience: Number(e.target.value) })} /></label>
+          <label className="full">Target titles<input value={csv(profile.targetTitles)} onChange={(e) => setProfile({ ...profile, targetTitles: parseCsv(e.target.value) })} placeholder="Software Developer, Junior Software Engineer, IT Project Manager" /></label>
+          <label className="full">Skills<textarea rows={4} value={csv(profile.skills)} onChange={(e) => setProfile({ ...profile, skills: parseCsv(e.target.value) })} placeholder="React, TypeScript, Node.js, Firebase, Flutter..." /></label>
+          <label className="full">Preferred locations<input value={csv(profile.preferredLocations)} onChange={(e) => setProfile({ ...profile, preferredLocations: parseCsv(e.target.value) })} placeholder="Dublin, Ireland, Remote" /></label>
+          <label>Remote preference<select value={profile.remotePreference} onChange={(e) => setProfile({ ...profile, remotePreference: e.target.value as Profile["remotePreference"] })}><option value="any">Any</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select></label>
+          <label>Minimum salary<input type="number" min="0" value={profile.minimumSalary ?? ""} onChange={(e) => setProfile({ ...profile, minimumSalary: e.target.value ? Number(e.target.value) : null })} /></label>
+          <label className="full">Work authorisation<input value={profile.workAuthorization} onChange={(e) => setProfile({ ...profile, workAuthorization: e.target.value })} /></label>
+          <label>LinkedIn<input value={profile.linkedinUrl} onChange={(e) => setProfile({ ...profile, linkedinUrl: e.target.value })} /></label>
+          <label>GitHub<input value={profile.githubUrl} onChange={(e) => setProfile({ ...profile, githubUrl: e.target.value })} /></label>
+          <label>Google Scholar<input value={profile.googleScholarUrl} onChange={(e) => setProfile({ ...profile, googleScholarUrl: e.target.value })} placeholder="Optional" /></label>
+          <label>X / Twitter<input value={profile.xUrl} onChange={(e) => setProfile({ ...profile, xUrl: e.target.value })} placeholder="Optional" /></label>
+          <label className="full">Portfolio / website<input value={profile.portfolioUrl} onChange={(e) => setProfile({ ...profile, portfolioUrl: e.target.value })} /></label>
+          <label className="full">Professional summary<textarea rows={6} value={profile.summary} onChange={(e) => setProfile({ ...profile, summary: e.target.value })} /></label>
+        </div>
+        <div className="actions"><button className="primary" disabled={saving}>{saving ? "Saving..." : "Save profile"}</button></div>
+      </form>
+    </>
+  );
+}

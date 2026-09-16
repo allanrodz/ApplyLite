@@ -1,0 +1,33 @@
+{
+  "name": "@apply-lite/api",
+  "version": "0.14.7",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "regression:m9": "tsx scripts/m9Regression.ts",
+    "regression:m10": "tsx scripts/m10Regression.ts",
+    "regression:discovery": "tsx scripts/discoveryRegression.ts"
+  },
+  "dependencies": {
+    "@apply-lite/shared": "0.1.0",
+    "@fastify/cors": "^11.1.0",
+    "@fastify/multipart": "^10.1.1",
+    "better-sqlite3": "^12.2.0",
+    "dotenv": "^17.2.2",
+    "fastify": "^5.6.0",
+    "mammoth": "^1.12.2",
+    "playwright": "^1.55.0",
+    "unpdf": "^1.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
