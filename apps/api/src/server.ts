@@ -53,7 +53,7 @@ await app.register(multipart, {
   }
 });
 
-app.get("/health", async () => ({ ok: true, service: "apply-lite-api" }));
+app.get("/health", async () => ({ ok: true, service: "apply-lite-api", version: config.version }));
 await app.register(profileRoutes);
 await app.register(answerRoutes);
 await app.register(jobRoutes);

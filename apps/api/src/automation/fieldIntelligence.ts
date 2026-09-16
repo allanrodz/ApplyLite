@@ -164,14 +164,17 @@ export function rememberMapping(input: { ats: string; descriptor: FieldDescripto
 }
 
 export function matchField(ats: string, descriptor: FieldDescriptor, candidates: AnswerCandidate[]): FieldMatch | null {
+  const text = descriptorText(descriptor);
+  if (/\b(reference|referee|emergency contact|previous employer|employer name|company name|citizenship|nationality|country of birth|sponsorship|sponsor|visa|consent|agree|signature|gender|ethnicity|disability)\b/i.test(text)) return null;
+  if (["checkbox", "radio", "password", "hidden", "file"].includes(descriptor.type)) return null;
   const learned = learnedMapping(ats, descriptor.fingerprint);
-  if (learned) {
+  if (learned && learned.confidence >= 0.9 && learned.source === "observed-manual-value") {
     const candidate = candidateByKey(candidates, learned.fieldKey);
-    if (candidate) return { candidate, fieldKey: learned.fieldKey, confidence: Math.max(0.9, learned.confidence), learned: true, reason: `learned ${learned.source}` };
+    if (candidate) return { candidate, fieldKey: learned.fieldKey, confidence: learned.confidence, learned: true, reason: `learned ${learned.source}` };
   }
 
-  const auto = normalize(descriptor.autocomplete);
-  const autoKey = autocompleteMap[auto];
+  const auto = descriptor.autocomplete.toLowerCase().trim().split(/\s+/).find(token => autocompleteMap[token]);
+  const autoKey = auto ? autocompleteMap[auto] : undefined;
   if (autoKey) {
     const candidate = candidateByKey(candidates, autoKey);
     if (candidate) return { candidate, fieldKey: autoKey, confidence: 0.99, learned: false, reason: `autocomplete=${descriptor.autocomplete}` };
@@ -186,7 +189,6 @@ export function matchField(ats: string, descriptor: FieldDescriptor, candidates:
     if (candidate) return { candidate, fieldKey: "phone", confidence: 0.98, learned: false, reason: "input type=tel" };
   }
 
-  const text = descriptorText(descriptor);
   let best: FieldMatch | null = null;
   for (const alias of aliases) {
     if (!alias.pattern.test(text)) continue;
@@ -217,11 +219,7 @@ export function learnFromExistingValue(ats: string, descriptor: FieldDescriptor,
     rememberMapping({ ats, descriptor, fieldKey: exact[0].key, confidence: 1, source: "observed-manual-value" });
     return exact[0].key;
   }
-  const semantic = matchField(ats, descriptor, candidates);
-  if (semantic && semantic.confidence >= 0.72) {
-    rememberMapping({ ats, descriptor, fieldKey: semantic.fieldKey, confidence: semantic.confidence, source: "observed-filled-field" });
-    return semantic.fieldKey;
-  }
+
   return null;
 }
 

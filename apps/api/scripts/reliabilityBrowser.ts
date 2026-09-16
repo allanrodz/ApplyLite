@@ -1,0 +1,70 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import http from "node:http";
+import { chromium } from "playwright";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "applylite-browser-"));
+process.env.DATABASE_PATH = path.join(temp, "test.db"); process.env.STORAGE_PATH = path.join(temp, "storage");
+process.env.OLLAMA_BASE_URL = "http://127.0.0.1:1"; process.env.APPLYLITE_TEST_MODE = "true";
+const database = await import("../src/db/database.js"); database.initializeDatabase();
+const { cvRoutes } = await import("../src/routes/cv.js"); const { profileRoutes } = await import("../src/routes/profile.js");
+const api = Fastify(); await api.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }); await api.register(multipart); await api.register(cvRoutes); await api.register(profileRoutes);
+api.get("/experience/summary", async () => ({ totalYears: 0, technicalYears: 0, parseableEmploymentCount: 0, scoringDefaultYears: 0, scoringSource: "unknown" }));
+api.get("/automation/mappings", async () => []);
+await api.listen({ port: 4310, host: "127.0.0.1" });
+const build = path.resolve(process.cwd(), "../web/dist");
+if (!fs.existsSync(path.join(build, "index.html"))) throw new Error("Build apps/web before running browser regression from the API workspace.");
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url || "/", "http://localhost"); const file = path.resolve(build, `.${url.pathname === "/" ? "/index.html" : url.pathname}`);
+  if (!file.startsWith(build + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
+  const types: Record<string,string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+  res.setHeader("Content-Type", types[path.extname(file)] || "application/octet-stream"); res.end(fs.readFileSync(file));
+});
+await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+const artifacts = path.resolve(process.cwd(), "../../.test-artifacts"); fs.mkdirSync(artifacts, { recursive: true });
+try {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto(`http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}`);
+  await page.getByRole("button", { name: "CV intelligence", exact: true }).click();
+  await page.getByLabel("Full source text", { exact: true }).fill("Example Person\nEmail: person@example.invalid\nProfessional summary\nAccounts assistant with payroll and customer service experience.\nSkills\nExcel, Payroll, Customer service\nLanguages\nEnglish");
+  await page.getByRole("button", { name: "Import text", exact: true }).click();
+  await page.getByRole("heading", { name: "Review and edit facts", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Full Name", { exact: true }).inputValue(), "Example Person");
+  await page.getByRole("button", { name: "Add education entry", exact: true }).click();
+  await page.getByLabel("Qualification", { exact: true }).fill("Diploma in Accounting");
+  await page.getByLabel("Institution", { exact: true }).fill("Example College");
+  await page.screenshot({ path: path.join(artifacts, "cv-review.png"), fullPage: true });
+  await page.getByRole("button", { name: "Save reviewed facts", exact: true }).click();
+  await page.getByRole("button", { name: "Merge reviewed facts into Profile", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Profile updated" }).waitFor();
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByLabel("Target titles", { exact: true }).fill("");
+  await page.getByLabel("Target titles", { exact: true }).pressSequentially("Accounts Assistant, Bookkeeper", { delay: 5 });
+  await page.getByLabel("Preferred locations", { exact: true }).fill("Ireland, Remote");
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await page.getByText("Profile saved locally.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll("input")].some(el => el.value === "Accounts Assistant, Bookkeeper"));
+  assert.equal(await page.getByLabel("Email", { exact: true }).inputValue(), "person@example.invalid");
+  assert.equal(await page.getByLabel("Preferred locations", { exact: true }).inputValue(), "Ireland, Remote");
+  await page.screenshot({ path: path.join(artifacts, "profile.png"), fullPage: true });
+  const stored = database.db.prepare("SELECT data_json FROM profile WHERE id=1").get() as { data_json: string };
+  assert.deepEqual(JSON.parse(stored.data_json).targetTitles, ["Accounts Assistant", "Bookkeeper"]);
+  assert.equal(errors.length, 0, errors.join("\n"));
+  console.log("Browser regression PASS: offline CV import, education edit, review, merge, and comma-separated profile targets survive reload.");
+} catch (error) {
+  console.error("Browser state:", (await page.locator("body").innerText()).slice(-10000));
+  await page.screenshot({ path: path.join(artifacts, "failure.png"), fullPage: true });
+  throw error;
+} finally {
+  await browser.close(); await api.close(); await new Promise<void>(resolve => server.close(() => resolve())); database.db.close();
+  fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}

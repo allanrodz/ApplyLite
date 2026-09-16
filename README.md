@@ -1,204 +1,188 @@
 # ApplyLite
 
-**ApplyLite is a local-first job search and application copilot for Windows.** It helps you discover relevant roles, compare them against your real CV evidence, prepare application material, assist with ATS forms, and track outcomes — while keeping the final application submission under your control.
+**A local-first job-search and application assistant for Windows.**
 
-Your CV, profile, answers, application history, generated documents, and local AI workflow stay on your computer by default.
+Import and review your CV, search for positions in your chosen career fields, compare
+requirements, prepare application documents, and track outcomes. Local AI uses Ollama.
+You review the evidence and control final employer submissions.
 
-## One-command Windows install
+## Install or update
 
-Open **PowerShell** and run:
+**Close the running ApplyLite window first.** In ordinary PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/allanrodz/ApplyLite/main/install.ps1 | iex
 ```
 
-The installer will:
+This runs code from this repository. Read `install.ps1` before executing a remote
+installer. It downloads a fixed GitHub commit over HTTPS, installs/checks Node.js,
+installs locked npm dependencies and Playwright Chromium, attempts to set up Ollama
+and the configured model, then opens ApplyLite. Node installation may request Windows
+administrator approval. Internet access and several GB of free disk space are needed.
 
-1. Install **Node.js 20+** if needed.
-2. Install **Ollama** if needed.
-3. Download ApplyLite into `%LOCALAPPDATA%\ApplyLite`.
-4. Install npm dependencies.
-5. Install Playwright Chromium.
-6. Download the local `qwen3:8b` AI model.
-7. Start ApplyLite.
+Default folder: `%LOCALAPPDATA%\ApplyLite`. Open `http://localhost:5173` after startup.
+Keep the launcher window open while using the app. The API listens on loopback port 4310.
 
-The first install can take a while because the Ollama model is several GB. Re-running the same command updates the application while preserving local `.env`, database, uploaded/generated files, secrets, backups, and exports.
+Starting with **0.15.0**, double-click **Update ApplyLite.cmd** in the installation folder
+for future updates. Double-click **Start ApplyLite.cmd** to run it again.
 
-After startup:
-
-- App: http://localhost:5173
-- API health: http://localhost:4310/health
-
-## What ApplyLite does
-
-### CV intelligence
-
-Import a master CV from PDF, DOCX, TXT/Markdown, or pasted text. ApplyLite extracts a factual candidate memory and uses source-backed facts as the evidence base for later matching and writing.
-
-### Job import and evidence-backed fit scoring
-
-Paste an employer job URL or import a posting. ApplyLite separates required and preferred criteria, compares them with your profile/CV evidence, and produces a deterministic fit score before optional local-AI analysis.
-
-### Broad entry-level job discovery
-
-Discover mode searches multiple role families instead of spending the entire search budget on a few nearly identical keywords. It can cover areas such as:
-
-- junior software / frontend / full-stack development
-- technical support and application support
-- QA and software testing
-- general IT and service desk roles
-- technology / business analysis
-- project and PMO coordination
-- data / BI / junior analytics
-- cloud and infrastructure support
-- entry-level cybersecurity
-- AI-adjacent junior technical roles
-
-Discovery supports employer ATS feeds and public job sources, deduplicates results, filters obviously senior roles, and can include Ireland, Europe/worldwide remote, and optional US-scoped remote opportunities.
-
-### Application packages
-
-For approved opportunities, ApplyLite can build reviewable application packages from verified evidence, including tailored CV/resume material, cover letters, and screening-answer drafts. Generated prose is audited against saved candidate evidence before it is treated as ready.
-
-### Browser application assistant
-
-A visible Playwright browser can help fill high-confidence ATS fields from your Profile, Answer Library, and approved package. Passwords, CAPTCHA, sensitive demographic/legal questions, unknown fields, and the final Submit action remain manual.
-
-### Application tracker and outcome learning
-
-Track applications separately from employer outcomes such as waiting, interview, rejection, offer, withdrawal, and follow-up. ApplyLite can use your own submitted-application history to make a small bounded adjustment to future job ranking without replacing factual fit scoring.
-
-### Daily discovery and prep queue
-
-ApplyLite can run a local daily discovery routine, build a shortlist, and queue high-fit jobs for application-package preparation while preserving the human review boundary.
-
-### Interview and follow-up copilot
-
-For applications that reach interview or need follow-up, ApplyLite can create interview preparation, evidence anchors, likely questions, refresh topics, and follow-up drafts grounded in the saved job and CV evidence.
-
-### Optional Gmail intelligence
-
-ApplyLite includes a read-only Gmail workflow for detecting recruiting/application messages and proposing tracker updates. Messages can suggest an outcome, but changes still require user confirmation. OAuth secrets stay local and are excluded from backups and Git.
-
-## Privacy and safety
-
-ApplyLite is designed as a single-user, local-first application:
-
-- SQLite stores profile, jobs, answers, and application history locally.
-- Ollama provides local AI inference.
-- `.env`, `.secrets`, databases, uploaded CVs, generated documents, backups, and exports are excluded from Git, including the runtime copies under `apps/api/`.
-- Candidate facts are treated as the source of truth; AI is not supposed to invent experience or qualifications.
-- Unknown answers are surfaced for manual input.
-- Final employer submission remains a human action.
-
-Job discovery and employer pages are, by nature, network operations. Optional Gmail integration also connects to Google when configured.
-
-## Requirements
-
-For the one-command installer:
-
-- Windows 10 or later
-- PowerShell
-- Internet access for installation, model download, and job discovery
-- Enough free disk space for Node dependencies, Playwright Chromium, and the Ollama model
-
-For local AI performance, more RAM and GPU acceleration will improve speed. CPU-only Ollama works but can be considerably slower.
-
-## Manual developer setup
-
-If you prefer to clone and run the source yourself:
+For an existing custom installation folder:
 
 ```powershell
-git clone https://github.com/allanrodz/ApplyLite.git
-cd ApplyLite
-Copy-Item .env.example .env
-npm install
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/allanrodz/ApplyLite/main/install.ps1))) -InstallDir "C:\Apps\ApplyLite"
+```
+
+Options: `-NoRun` installs without launching; `-SkipModel` skips the model download;
+`-SkipAI` skips Ollama setup. CV text import, review/editing and deterministic profile
+matching do not require AI. Optional enhancement and AI-generated documents do.
+
+### Updates preserve your local data
+
+The updater prepares and checks a staging copy before replacing the app. It refuses a
+running installation and retains the old folder as `ApplyLite.backup-<timestamp>-<id>`.
+Standard data, storage, `.env`, Gmail secrets, backups, exports and pending-restore
+folders are preserved, including legacy `apps/api` locations. Windows workspace links
+are repaired after moving to the final folder. A staging failure leaves the old app in
+place; a replacement/relink failure restores the old folder when one existed.
+
+Do not start ApplyLite during an update. Keep the backup until you verify your profile,
+CV and application history. To roll back, close ApplyLite, move the new folder aside,
+and restore the backup to the original path. Git checkouts should use `git pull` and
+`npm ci`, rather than the one-command installer.
+
+## First use: CV to applications
+
+1. **CV intelligence:** upload PDF, DOCX, TXT or Markdown, or paste your CV text. The app
+   saves an editable draft without waiting for an AI response.
+2. **Review and edit facts:** compare the fields with the full extracted source. Correct
+   contact details, skills, employment, education, projects, languages and certifications.
+   **Enhance draft with local AI** is optional and runs separately from the upload.
+3. **Save reviewed facts**, then **Merge reviewed facts into Profile**. Drafts are separate
+   from reviewed CVs. Matching continues to use your last saved reviewed CV until you
+   publish a new review; importing an unfinished draft does not erase it.
+4. **Profile:** choose your target job titles or career terms, skills and preferred
+   locations. These are your choices, not inferred preferences based on an old job.
+5. **Discover** opportunities or import an employer job URL. Check match explanations,
+   missing requirements, qualifications and location restrictions before applying.
+6. Review the generated package and employer form, submit manually, then track outcomes.
+
+### Reliable import does not mean perfect automated extraction
+
+The offline parser makes a conservative draft from recognizable headings and explicit
+source values. Uncertain fields are left blank rather than invented. Other layouts can
+use optional AI enhancement or the editable form. The entire extracted source remains
+available, including when AI is offline, slow, interrupted or returns invalid output.
+
+AI enhancement uses short source chunks and a bounded runtime. It checks proposed values
+against source excerpts; grouping and completeness still require human review. Saving
+manual edits prevents late AI results from overwriting the reviewed data. Version checks
+reject stale saves from another browser view.
+
+Upload limits: **10 MB** per file and **100,000 source characters**. Optional AI enhancement
+supports **30,000 characters**. Scanned/image-only PDFs and encrypted files may not provide
+usable text. **OCR is not included**: export a selectable-text PDF/DOCX or paste the text.
+
+### Matching for different career fields
+
+Your target titles take precedence over your current job. Discovery can expand chosen
+terms across supported career families, including accounting/finance, healthcare,
+hospitality, administration, marketing, sales, HR, customer service, logistics, education,
+design, construction, legal and technology. Unknown/niche titles still use explicit words.
+Query planning supports up to 18 queries rather than only the first three saved titles.
+
+Entry-level-only, broad entry-level IT, and US-scoped remote searches are **opt-in**.
+Scheduled discovery respects saved targets and locations without silently enabling broad
+IT searches. Starter employer boards are still largely Ireland/technology-focused; add
+relevant public employer sources for your own field. Coverage and source availability
+are not guaranteed.
+
+Skill matching distinguishes Java from JavaScript, C from C++, and partial skills from
+compound requirements. Missing end dates are not assumed to mean current employment;
+unrelated work is not credited as relevant years. Scores are heuristic fit estimates,
+not proof of eligibility or verified qualifications. Existing jobs are rescored when
+the job workspace is loaded using your saved profile/CV.
+
+A US remote posting is not proof that an Ireland-based applicant can be hired. Check
+residence, work authorisation, working hours and employer hiring-country restrictions.
+
+### Form-field assistance
+
+The browser assistant understands standard autocomplete tokens and saved answers.
+Uncertain learned mappings are no longer boosted to high confidence automatically.
+Referee/employer contact fields, citizenship, sponsorship and consent are not filled
+from loosely related personal data. Fill ambiguous or sensitive fields manually and
+review every answer. Complex widgets and unusual employer forms may need manual work.
+
+## Other features
+
+- Tailored CVs, cover letters and screening-answer drafts with evidence checks.
+- Application tracking, notes, next actions and outcome-aware ranking.
+- Optional daily discovery and a preparation review queue.
+- Interview preparation and follow-up drafting.
+- Optional Gmail read-only career-message intelligence; proposed outcome changes need
+  confirmation, and Gmail requires your own OAuth setup.
+- Local diagnostics, backups and recovery tools.
+
+## Local AI and configuration
+
+Fresh installations default to `qwen3:4b`; updates retain an existing explicit model
+selection. Larger models can be slow on CPU-only or memory-limited machines. There is
+no guaranteed AI response time. Start with the offline import/review path when needed.
+
+```powershell
+ollama list
+ollama ps
+Invoke-RestMethod http://127.0.0.1:4310/ai/health
+```
+
+AI health distinguishes a reachable Ollama service from the configured model actually
+being installed. The API `/health` response includes the application version.
+
+Configuration precedence is **process environment > legacy `apps/api/.env` > root `.env`**.
+Existing legacy data locations remain in use; new installs can use one root env file.
+Do not copy someone else's env, database, CV storage or credentials into your app.
+
+```dotenv
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:4b
+OLLAMA_TIMEOUT_MS=180000
+CV_AI_TIMEOUT_MS=180000
+```
+
+`CV_AI_TIMEOUT_MS` bounds optional enhancement; uploads do not wait for it.
+
+## Development and tests
+
+Use Node.js **22.12+** or a supported newer LTS. From the project root:
+
+```powershell
+npm ci
 npx playwright install chromium
-ollama pull qwen3:8b
+npm run typecheck
+npm test
+npm run regression:browser
 npm run dev
 ```
 
-The repository requires Node.js 20+.
+Create `.env` from `.env.example` only when one does not already exist. The application
+is an npm workspace: `apps/web` (React/Vite), `apps/api` (Fastify/SQLite/Ollama/Playwright),
+`packages/shared` (Zod schemas/types), and `scripts` (Windows launch/update helpers).
 
-## Useful commands
+Tests use synthetic candidate data and isolated temporary databases. They cover CV
+parsing, offline import, optional AI failures, stale-save protection, career/skill/field
+matching, discovery breadth and the browser review-to-profile workflow. Do not point
+tests at a live database. Windows CI checks builds and PowerShell syntax as well.
 
-```powershell
-npm run dev                  # API + React web app
-npm run build                # production build
-npm run typecheck            # TypeScript checks
-npm run regression:discovery # discovery regression coverage
-npm run regression:m9        # production-hardening regression
-npm run regression:m10       # Gmail / M10 regression coverage
-```
+## Privacy and limitations
 
-## Architecture
+Each installation is a **single-person local workspace**, not a hosted multi-tenant
+service. Friends use independent databases on their own machines. Do not expose the API
+to a public network. By default CV/AI processing is local; a custom remote Ollama URL
+receives the text sent to AI. Discovery contacts public job websites, form assistance
+interacts with employers, and configured Gmail integration contacts Google.
 
-```text
-Profile + CV facts + Answer Library
-                |
-                v
-      Job import / discovery
-                |
-                v
-      filters + fit scoring
-                |
-                v
-         human approval
-                |
-                v
- CV + cover letter + Q&A package
-                |
-                v
- visible Playwright ATS assistant
-                |
-                v
-       HUMAN FINAL SUBMIT
-                |
-                v
- tracker + outcomes + learning
-```
-
-Core stack:
-
-- React + Vite
-- Fastify + TypeScript
-- SQLite / `better-sqlite3`
-- Ollama
-- Playwright
-- Zod
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the milestone documents under [`docs/`](docs/) for implementation details.
-
-## Updating
-
-If installed with the one-command installer, simply run the same command again:
-
-```powershell
-irm https://raw.githubusercontent.com/allanrodz/ApplyLite/main/install.ps1 | iex
-```
-
-The installer replaces application code and dependencies while preserving your local career data and configuration.
-
-## Data location
-
-The one-command installer uses:
-
-```text
-%LOCALAPPDATA%\ApplyLite
-```
-
-With the normal npm-workspace launch, runtime state is primarily under `apps\api\`: `data\`, `storage\`, `.secrets\`, and `.env`. The installer preserves these paths during updates. Root-level legacy data/config paths are preserved too when present.
-
-## Uninstalling
-
-Stop ApplyLite first. If you want to permanently remove the app **and all local ApplyLite data**, delete:
-
-```powershell
-Remove-Item "$env:LOCALAPPDATA\ApplyLite" -Recurse -Force
-```
-
-Back up the directory first if you want to retain your application history or generated documents.
-
-## Current scope
-
-ApplyLite is built for personal/local use. It is not a hosted multi-user service, does not bypass CAPTCHA, and does not autonomously click an employer's final application submission button.
+CVs, generated applications, browser sessions, `.env`, databases, secrets and backups are
+private runtime data excluded from Git. Do not attach them to public issues. Share the
+version, operation and a redacted error instead. No software can guarantee complete job
+coverage, correct legal eligibility, perfect extraction or compatibility with every form.
+Keep your original CV and review generated content before submission.
