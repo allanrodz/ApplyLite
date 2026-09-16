@@ -52,6 +52,9 @@ try {
     try { & (Join-Path $Root 'install.ps1') -InstallDir $Install -NoRun -SkipAI } catch { $blocked = $true }
     Assert $blocked 'running app is protected from replacement'
     Write-Host 'Updater regression PASS (isolated filesystem; external installs mocked).'
+    # The intentionally failed npm mock set LASTEXITCODE=1. All assertions passed;
+    # do not let the CI PowerShell wrapper interpret that expected fixture as failure.
+    $global:LASTEXITCODE = 0
 } finally {
     Set-Location $Root
     foreach ($name in @('Invoke-RestMethod','Invoke-WebRequest','Get-NetTCPConnection','Get-CimInstance','npm.cmd','npx.cmd')) { Remove-Item "function:global:$name" -ErrorAction SilentlyContinue }
