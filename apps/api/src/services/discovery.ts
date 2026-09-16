@@ -1,3 +1,4 @@
+import { targets, planCareerQueries, careerFamilies } from "./matching.js";
 import { createHash } from "node:crypto";
 import type {
   CandidateFacts,
@@ -236,7 +237,11 @@ function pushUnique(values: string[], value: string) {
   values.push(cleaned);
 }
 
-export function buildDiscoverySearchQueries(
+export function buildDiscoverySearchQueries(targetTitles: string[], maxQueries = 18, broadEntryLevelIT = false) {
+  return broadEntryLevelIT ? legacyDiscoverySearchQueries(targetTitles, maxQueries, true) : planCareerQueries(targetTitles, maxQueries);
+}
+
+function legacyDiscoverySearchQueries(
   targetTitles: string[],
   maxQueries = MAX_PUBLIC_SEARCH_QUERIES,
   broadEntryLevelIT = true
@@ -379,7 +384,7 @@ export function titleAlignmentScore(postingTitle: string, targetTitles: string[]
     }
 
     const targetFamilies = roleFamilies(target);
-    const familyMatch = [...targetFamilies].some((family) => postingFamilies.has(family));
+    const familyMatch = [...targetFamilies].some((family) => postingFamilies.has(family)) || careerFamilies(target).some(key => careerFamilies(postingTitle).includes(key));
     const targetMeaningful = meaningfulTitleTokens(target);
     const overlap = targetMeaningful.length
       ? targetMeaningful.filter((token) => postingMeaningful.has(token)).length / targetMeaningful.length
@@ -1218,11 +1223,12 @@ async function executeDiscovery(input: DiscoveryRunInput) {
   const startedAt = Date.now();
   const profile = loadProfile();
   const facts = loadCandidateFacts();
-  const targetTitles = (input.targetTitles?.length ? input.targetTitles : [profile.currentTitle, ...profile.targetTitles]).filter(Boolean);
+  const targetTitles = (input.targetTitles?.length ? input.targetTitles : targets(profile)).filter(Boolean);
   const locations = (input.locations?.length ? input.locations : [...profile.preferredLocations, profile.city, profile.country]).filter(Boolean);
-  const entryLevelOnly = input.entryLevelOnly ?? true;
-  const broadEntryLevelIT = input.broadEntryLevelIT ?? true;
-  const includeRemoteUS = input.includeRemoteUS ?? true;
+  const entryLevelOnly = input.entryLevelOnly ?? false;
+  const broadEntryLevelIT = input.broadEntryLevelIT ?? false;
+  const includeRemoteUS = input.includeRemoteUS ?? false;
+  if (!targetTitles.length && !broadEntryLevelIT) throw new Error("Choose target roles in Profile before discovering jobs.");
   const alignmentTitles = buildDiscoveryAlignmentTitles(targetTitles, broadEntryLevelIT);
   const searchQueries = buildDiscoverySearchQueries(targetTitles, MAX_PUBLIC_SEARCH_QUERIES, broadEntryLevelIT);
   const sources = listDiscoverySources().filter((source) => source.enabled);

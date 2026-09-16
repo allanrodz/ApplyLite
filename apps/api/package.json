@@ -1,6 +1,6 @@
 {
   "name": "@apply-lite/api",
-  "version": "0.14.7",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "regression:m9": "tsx scripts/m9Regression.ts",
     "regression:m10": "tsx scripts/m10Regression.ts",
-    "regression:discovery": "tsx scripts/discoveryRegression.ts"
+    "regression:discovery": "tsx scripts/discoveryRegression.ts",
+    "regression:reliability": "tsx scripts/reliabilityRegression.ts",
+    "regression:browser": "tsx scripts/reliabilityBrowser.ts"
   },
   "dependencies": {
     "@apply-lite/shared": "0.1.0",

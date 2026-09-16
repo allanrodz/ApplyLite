@@ -25,7 +25,7 @@ export function App() {
           <div className="brand-mark">A</div>
           <div>
             <strong>ApplyLite</strong>
-            <span>local job copilot</span>
+            <span>local job copilot - v0.15.0</span>
           </div>
         </div>
 
@@ -47,7 +47,7 @@ export function App() {
 
         <div className="safety-note">
           <strong>Review mode</strong>
-          <span>ApplyLite never invents candidate facts and never clicks the final submit button without your review.</span>
+          <span>Review every extracted fact and employer form. You control final submission.</span>
         </div>
       </aside>
 

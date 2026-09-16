@@ -45,41 +45,43 @@ export const ProfileSchema = z.object({
 export type Profile = z.infer<typeof ProfileSchema>;
 
 export const EmploymentFactSchema = z.object({
-  employer: z.string(),
-  title: z.string(),
-  startDate: z.string(),
-  endDate: z.string(),
-  location: z.string(),
-  bullets: z.array(z.string())
+  employer: z.string().default(""),
+  title: z.string().default(""),
+  startDate: z.string().default(""),
+  endDate: z.string().default(""),
+  location: z.string().default(""),
+  bullets: z.array(z.string()).default([])
 });
 
 export const EducationFactSchema = z.object({
-  institution: z.string(),
-  qualification: z.string(),
-  field: z.string(),
-  startDate: z.string(),
-  endDate: z.string(),
-  details: z.array(z.string())
+  institution: z.string().default(""),
+  qualification: z.string().default(""),
+  field: z.string().default(""),
+  startDate: z.string().default(""),
+  endDate: z.string().default(""),
+  details: z.array(z.string()).default([])
 });
 
 export const ProjectFactSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  technologies: z.array(z.string()),
-  bullets: z.array(z.string())
+  name: z.string().default(""),
+  description: z.string().default(""),
+  technologies: z.array(z.string()).default([]),
+  bullets: z.array(z.string()).default([])
 });
 
 export const CandidateFactsSchema = z.object({
   fullName: z.string().default(""),
-  headline: z.string(),
-  summary: z.string(),
-  skills: z.array(z.string()),
-  employment: z.array(EmploymentFactSchema),
-  education: z.array(EducationFactSchema),
-  projects: z.array(ProjectFactSchema),
-  certifications: z.array(z.string()),
-  languages: z.array(z.string()),
-  evidenceNotes: z.array(z.string())
+  email: z.string().default(""),
+  phone: z.string().default(""),
+  headline: z.string().default(""),
+  summary: z.string().default(""),
+  skills: z.array(z.string()).default([]),
+  employment: z.array(EmploymentFactSchema).default([]),
+  education: z.array(EducationFactSchema).default([]),
+  projects: z.array(ProjectFactSchema).default([]),
+  certifications: z.array(z.string()).default([]),
+  languages: z.array(z.string()).default([]),
+  evidenceNotes: z.array(z.string()).default([])
 });
 
 export type CandidateFacts = z.infer<typeof CandidateFactsSchema>;
@@ -183,9 +185,9 @@ export const DiscoveryRunInputSchema = z.object({
   maxDeepAnalysis: z.number().int().min(1).max(20).default(12),
   analysisConcurrency: z.number().int().min(1).max(4).default(2),
   useOutcomeLearning: z.boolean().default(true),
-  entryLevelOnly: z.boolean().default(true),
-  broadEntryLevelIT: z.boolean().default(true),
-  includeRemoteUS: z.boolean().default(true)
+  entryLevelOnly: z.boolean().default(false),
+  broadEntryLevelIT: z.boolean().default(false),
+  includeRemoteUS: z.boolean().default(false)
 });
 
 export type DiscoveryRunInput = z.infer<typeof DiscoveryRunInputSchema>;

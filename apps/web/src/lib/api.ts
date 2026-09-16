@@ -11,6 +11,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init?.signal ?? AbortSignal.timeout(300_000) });
   } catch (error) {
+    if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)) throw new Error("Request timed out or was cancelled. Check saved task status before retrying; this is not necessarily a connection failure.");
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Could not reach the local ApplyLite API at ${API_BASE}. Make sure npm run dev is still running. ${message}`);
   }

@@ -2,10 +2,10 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
-Write-Host "ApplyLite M9 launcher" -ForegroundColor Cyan
+Write-Host "ApplyLite launcher" -ForegroundColor Cyan
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    throw "Node.js was not found in PATH. Install Node.js 20+ before starting ApplyLite."
+    throw "Node.js was not found in PATH. Install Node.js 22.12+ before starting ApplyLite."
 }
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     throw "npm was not found in PATH."
@@ -32,7 +32,7 @@ try {
 }
 
 if (-not $ollamaReady) {
-    Write-Warning "Ollama is not reachable. ApplyLite can start, but AI features will fail until Ollama is running."
+    Write-Warning "Ollama is not reachable. ApplyLite can start, but optional AI features are unavailable; manual CV import/editing still works."
 }
 
 # Open the UI after Vite has had a moment to start.
@@ -42,4 +42,5 @@ Start-Job -ScriptBlock {
 } | Out-Null
 
 Write-Host "Starting ApplyLite. Keep this window open while you use the app." -ForegroundColor Green
-& npm run dev
+& npm.cmd run dev
+if ($LASTEXITCODE -ne 0) { throw "ApplyLite stopped with an error. Review the output above." }

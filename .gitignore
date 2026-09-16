@@ -49,3 +49,5 @@ Thumbs.db
 *.log
 
 *.tsbuildinfo
+
+**/.test-build/

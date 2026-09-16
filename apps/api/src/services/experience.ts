@@ -1,3 +1,4 @@
+import { roleSimilarity, careerFamilies } from "./matching.js";
 import type {
   CandidateFacts,
   ExperienceSummary,
@@ -47,8 +48,8 @@ function currentMonthIndex() {
 
 function parseMonth(value: string, endDate: boolean): number | null {
   const raw = value.trim().toLowerCase().replace(/[–—]/g, "-");
-  if (!raw) return endDate ? currentMonthIndex() : null;
-  if (/^(present|current|now|ongoing|today)$/.test(raw)) return currentMonthIndex();
+  if (!raw) return null;
+  if (/^(present|current|now|ongoing|today|presente|atual)$/.test(raw)) return currentMonthIndex();
 
   let match = raw.match(/^(\d{4})[-/](\d{1,2})(?:[-/]\d{1,2})?$/);
   if (match) {
@@ -86,7 +87,8 @@ function intervalForEmployment(entry: EmploymentFact): MonthInterval | null {
   const start = parseMonth(entry.startDate, false);
   let end = parseMonth(entry.endDate, true);
   if (start === null || end === null) return null;
-  if (end < start) [end] = [start];
+  end = Math.min(end, currentMonthIndex());
+  if (end < start) return null;
   return { start, endExclusive: end + 1 };
 }
 
@@ -122,36 +124,13 @@ function titleTokens(value: string) {
     .filter((token) => token.length > 2 && !TITLE_STOPWORDS.has(token));
 }
 
-function titleRelated(jobTitle: string, employmentTitle: string) {
-  const jobTokens = titleTokens(jobTitle);
-  const employmentTokens = new Set(titleTokens(employmentTitle));
-  if (!jobTokens.length || !employmentTokens.size) return false;
-  const overlap = jobTokens.filter((token) => employmentTokens.has(token)).length;
-  return overlap / jobTokens.length >= 0.34 || overlap >= 2;
-}
-
-function isTechnicalEmployment(entry: EmploymentFact, facts: CandidateFacts) {
-  const text = employmentText(entry);
-  if (TECH_TERMS.some((term) => text.includes(normalize(term)))) return true;
-  const knownSkills = [...facts.skills, ...facts.projects.flatMap((project) => project.technologies)]
-    .map((skill) => normalize(skill))
-    .filter((skill) => skill.trim().length >= 2);
-  return knownSkills.some((skill) => text.includes(skill));
-}
+function titleRelated(jobTitle: string, employmentTitle: string) { return roleSimilarity(jobTitle, employmentTitle) >= 0.65; }
+function isTechnicalEmployment(entry: EmploymentFact, _facts: CandidateFacts) { return careerFamilies(entry.title).some(key => ["software", "support", "data", "qa", "cloud", "security", "ai"].includes(key)); }
 
 function relevanceReason(entry: EmploymentFact, facts: CandidateFacts, job?: JobInput | null, requirements?: JobRequirements | null) {
   const text = employmentText(entry);
   if (job && titleRelated(job.title, entry.title)) return "title overlap";
 
-  const jobSkills = [...(requirements?.requiredSkills ?? []), ...(requirements?.preferredSkills ?? [])];
-  const matchedSkills = jobSkills.filter((skill) => text.includes(normalize(skill)));
-  if (matchedSkills.length) return `job-skill evidence: ${matchedSkills.slice(0, 3).join(", ")}`;
-
-  if (job) {
-    const jobText = normalize(`${job.title} ${job.description}`);
-    const techJob = TECH_TERMS.some((term) => jobText.includes(normalize(term)));
-    if (techJob && isTechnicalEmployment(entry, facts)) return "technical employment relevant to a technical role";
-  }
 
   return job ? "" : isTechnicalEmployment(entry, facts) ? "technical employment" : "";
 }

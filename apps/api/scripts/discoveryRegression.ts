@@ -50,7 +50,7 @@ try {
     "Project Coordinator",
     "Technology Analyst",
     "Junior AI Engineer"
-  ]);
+  ], 18, true);
   assert.ok(broadQueries.length > 5, "discovery should search more than the first handful of titles");
   assert.ok(broadQueries.some((query) => /support|service desk|help desk/i.test(query)), "expected support-family query coverage");
   assert.ok(broadQueries.some((query) => /qa|test/i.test(query)), "expected QA-family query coverage");

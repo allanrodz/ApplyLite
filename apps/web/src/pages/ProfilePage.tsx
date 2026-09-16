@@ -16,21 +16,21 @@ export function ProfilePage() {
   const [message, setMessage] = useState("");
   const [mappings, setMappings] = useState<AutofillMapping[]>([]);
   const [saving, setSaving] = useState(false);
+  const [listDraft, setListDraft] = useState({ targetTitles: "", skills: "", preferredLocations: "" });
 
   useEffect(() => {
     Promise.all([api<Profile>("/profile"), api<ExperienceSummary>("/experience/summary"), api<AutofillMapping[]>("/automation/mappings")])
-      .then(([savedProfile, summary, learnedMappings]) => { setProfile(savedProfile); setExperience(summary); setMappings(learnedMappings); })
+      .then(([savedProfile, summary, learnedMappings]) => { setProfile(savedProfile); setListDraft({ targetTitles: savedProfile.targetTitles.join(", "), skills: savedProfile.skills.join(", "), preferredLocations: savedProfile.preferredLocations.join(", ") }); setExperience(summary); setMappings(learnedMappings); })
       .catch((e) => setMessage(e.message));
   }, []);
 
-  const csv = (value: string[]) => value.join(", ");
-  const parseCsv = (value: string) => value.split(",").map((v) => v.trim()).filter(Boolean);
+  const parseCsv = (value: string) => value.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
     try {
-      const saved = await api<Profile>("/profile", { method: "PUT", body: JSON.stringify(profile) });
+      const saved = await api<Profile>("/profile", { method: "PUT", body: JSON.stringify({ ...profile, ...Object.fromEntries(Object.entries(listDraft).map(([key, value]) => [key, parseCsv(value)])) }) });
       setProfile(saved);
       setMessage("Profile saved locally.");
     } catch (e) {
@@ -51,7 +51,7 @@ export function ProfilePage() {
       </section>
       {experience && (
         <section className="panel experience-profile">
-          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.technicalYears} years technical experience</strong></div>
+          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.technicalYears} years technical experience (IT roles)</strong></div>
           <div><span>All dated employment</span><strong>{experience.totalYears} years</strong></div>
           <div><span>Employment ranges parsed</span><strong>{experience.parseableEmploymentCount}</strong></div>
           <p>Job-specific scoring now derives relevant experience from your employment dates. The manual Years experience field remains a fallback only when CV evidence cannot be calculated.</p>
@@ -67,9 +67,9 @@ export function ProfilePage() {
           <label>Country<input value={profile.country} onChange={(e) => setProfile({ ...profile, country: e.target.value })} /></label>
           <label>Current title<input value={profile.currentTitle} onChange={(e) => setProfile({ ...profile, currentTitle: e.target.value })} /></label>
           <label>Years experience<input type="number" min="0" value={profile.yearsExperience} onChange={(e) => setProfile({ ...profile, yearsExperience: Number(e.target.value) })} /></label>
-          <label className="full">Target titles<input value={csv(profile.targetTitles)} onChange={(e) => setProfile({ ...profile, targetTitles: parseCsv(e.target.value) })} placeholder="Software Developer, Junior Software Engineer, IT Project Manager" /></label>
-          <label className="full">Skills<textarea rows={4} value={csv(profile.skills)} onChange={(e) => setProfile({ ...profile, skills: parseCsv(e.target.value) })} placeholder="React, TypeScript, Node.js, Firebase, Flutter..." /></label>
-          <label className="full">Preferred locations<input value={csv(profile.preferredLocations)} onChange={(e) => setProfile({ ...profile, preferredLocations: parseCsv(e.target.value) })} placeholder="Dublin, Ireland, Remote" /></label>
+          <label className="full">Target titles<input value={listDraft.targetTitles} onChange={(e) => setListDraft({ ...listDraft, targetTitles: e.target.value })} placeholder="Your desired job titles, separated by commas" /></label>
+          <label className="full">Skills<textarea rows={4} value={listDraft.skills} onChange={(e) => setListDraft({ ...listDraft, skills: e.target.value })} placeholder="Skills from your CV, separated by commas" /></label>
+          <label className="full">Preferred locations<input value={listDraft.preferredLocations} onChange={(e) => setListDraft({ ...listDraft, preferredLocations: e.target.value })} placeholder="Dublin, Ireland, Remote" /></label>
           <label>Remote preference<select value={profile.remotePreference} onChange={(e) => setProfile({ ...profile, remotePreference: e.target.value as Profile["remotePreference"] })}><option value="any">Any</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select></label>
           <label>Minimum salary<input type="number" min="0" value={profile.minimumSalary ?? ""} onChange={(e) => setProfile({ ...profile, minimumSalary: e.target.value ? Number(e.target.value) : null })} /></label>
           <label className="full">Work authorisation<input value={profile.workAuthorization} onChange={(e) => setProfile({ ...profile, workAuthorization: e.target.value })} /></label>

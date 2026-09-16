@@ -1,6 +1,6 @@
 {
   "name": "apply-lite",
-  "version": "0.14.7",
+  "version": "0.15.0",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -14,13 +14,16 @@
     "typecheck": "npm run build -w @apply-lite/shared && npm run typecheck -w @apply-lite/api && npm run typecheck -w @apply-lite/web",
     "regression:m9": "npm run build -w @apply-lite/shared && npm run regression:m9 -w @apply-lite/api",
     "regression:m10": "npm run build -w @apply-lite/shared && npm run regression:m10 -w @apply-lite/api",
-    "regression:discovery": "npm run build -w @apply-lite/shared && npm run regression:discovery -w @apply-lite/api"
+    "regression:discovery": "npm run build -w @apply-lite/shared && npm run regression:discovery -w @apply-lite/api",
+    "regression:reliability": "npm run build -w @apply-lite/shared && npm run regression:reliability -w @apply-lite/api",
+    "test": "npm run regression:reliability && npm run regression:discovery",
+    "regression:browser": "npm run build && npm run regression:browser -w @apply-lite/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   }
 }

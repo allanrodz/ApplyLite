@@ -67,9 +67,9 @@ export function DiscoverPage() {
   const [maxDeepAnalysis, setMaxDeepAnalysis] = useState(12);
   const [analysisConcurrency, setAnalysisConcurrency] = useState(2);
   const [useOutcomeLearning, setUseOutcomeLearning] = useState(true);
-  const [entryLevelOnly, setEntryLevelOnly] = useState(true);
-  const [broadEntryLevelIT, setBroadEntryLevelIT] = useState(true);
-  const [includeRemoteUS, setIncludeRemoteUS] = useState(true);
+  const [entryLevelOnly, setEntryLevelOnly] = useState(false);
+  const [broadEntryLevelIT, setBroadEntryLevelIT] = useState(false);
+  const [includeRemoteUS, setIncludeRemoteUS] = useState(false);
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceName, setSourceName] = useState("");
   const [result, setResult] = useState<DiscoveryResult | null>(null);
@@ -90,7 +90,7 @@ export function DiscoverPage() {
       setProfile(savedProfile);
       setSources(savedSources);
       setExperience(summary);
-      setTargetTitles(csv([savedProfile.currentTitle, ...savedProfile.targetTitles].filter(Boolean)));
+      setTargetTitles(csv(savedProfile.targetTitles.length ? savedProfile.targetTitles : [savedProfile.currentTitle].filter(Boolean)));
       setLocations(csv([...savedProfile.preferredLocations, savedProfile.city, savedProfile.country].filter(Boolean)));
     }).catch((e) => setError(e instanceof Error ? e.message : "Could not load discovery settings"));
   }, []);

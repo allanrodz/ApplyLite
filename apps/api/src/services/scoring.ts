@@ -1,3 +1,4 @@
+import { canonicalSkill, skillMatches, containsTerm, roleSimilarity, targets } from "./matching.js";
 import type { CandidateFacts, JobInput, JobRequirements, Profile, ScoreBreakdown } from "@apply-lite/shared";
 import { deriveExperienceSummary } from "./experience.js";
 
@@ -5,22 +6,6 @@ const STOPWORDS = new Set([
   "and", "the", "with", "for", "from", "that", "this", "you", "your", "our",
   "are", "will", "have", "has", "using", "into", "job", "role", "work", "team"
 ]);
-
-const SKILL_ALIAS_GROUPS = [
-  ["javascript", "js"],
-  ["typescript", "ts"],
-  ["node.js", "nodejs", "node js"],
-  ["react", "react.js", "reactjs"],
-  ["postgresql", "postgres"],
-  ["c#", "csharp"],
-  ["c++", "cpp"],
-  ["aws", "amazon web services"],
-  ["gcp", "google cloud", "google cloud platform"],
-  ["ci/cd", "cicd", "continuous integration", "continuous delivery"],
-  ["rest api", "restful api", "rest"],
-  ["machine learning", "ml"],
-  ["artificial intelligence", "ai"]
-];
 
 function normalize(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9+#./\- ]/g, " ").replace(/\s+/g, " ").trim();
@@ -30,36 +15,13 @@ function tokenSet(value: string) {
   return new Set(normalize(value).split(" ").filter((token) => token.length > 1 && !STOPWORDS.has(token)));
 }
 
-function canonicalSkill(value: string) {
-  const normalized = normalize(value);
-  for (const group of SKILL_ALIAS_GROUPS) {
-    if (group.some((alias) => normalize(alias) === normalized)) return normalize(group[0]);
-  }
-  return normalized;
-}
-
-function skillMatches(candidateSkill: string, jobSkill: string) {
-  const candidate = canonicalSkill(candidateSkill);
-  const required = canonicalSkill(jobSkill);
-  if (!candidate || !required) return false;
-  if (candidate === required || candidate.includes(required) || required.includes(candidate)) return true;
-
-  const candidateTokens = tokenSet(candidate);
-  const requiredTokens = [...tokenSet(required)];
-  return requiredTokens.length > 0 && requiredTokens.every((token) => candidateTokens.has(token));
-}
-
-function includesLoose(haystack: string, needle: string) {
-  const h = normalize(haystack);
-  const n = normalize(needle);
-  return n.length > 0 && (h.includes(n) || n.split(" ").every((part) => h.includes(part)));
-}
+function includesLoose(text: string, term: string) { return containsTerm(text, term); }
 
 function extractExperienceYears(text: string): number | null {
-  const matches = [...text.matchAll(/(\d{1,2})\+?\s*(?:years?|yrs?)/gi)].map((match) => Number(match[1]));
-  return matches.length ? Math.min(...matches) : null;
+  const relevant = text.split(/[\n.!?]/).filter(line => !/\b(preferred|desirable|nice to have)\b/i.test(line)).join("\n");
+  const matches = [...relevant.matchAll(/(\d{1,2})(?:\s*[-\u2013]\s*\d{1,2})?\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:(?:relevant|professional|commercial|industry|work|hands-on|software|technical)\s+)?experience/gi)].map(match => Number(match[1]));
+  return matches.length ? Math.max(...matches) : null;
 }
-
 
 type SkillSpecificExperienceRequirement = { years: number; subject: string };
 
@@ -158,33 +120,27 @@ export function scoreJob(
     skills = Math.round(10 + ratio * 30);
   } else {
     const mentionedCandidateSkills = candidate.filter((skill) => includesLoose(jobText, skill));
-    skills = Math.min(40, 20 + mentionedCandidateSkills.length * 4);
+    skills = Math.min(20, mentionedCandidateSkills.length * 4);
   }
 
-  const desiredTitles = [profile.currentTitle, ...profile.targetTitles].filter(Boolean);
-  const jobTitleTokens = tokenSet(job.title);
-  const titleOverlap = desiredTitles.reduce((best, desiredTitle) => {
-    const tokens = [...tokenSet(desiredTitle)];
-    if (!tokens.length) return best;
-    const overlap = tokens.filter((token) => jobTitleTokens.has(token)).length / tokens.length;
-    return Math.max(best, overlap);
-  }, 0);
-  const title = desiredTitles.length ? Math.round(titleOverlap * 20) : 10;
+  const desiredTitles = targets(profile);
+  const titleOverlap = desiredTitles.reduce((best, desired) => Math.max(best, roleSimilarity(job.title, desired)), 0);
+  const title = desiredTitles.length ? Math.round(titleOverlap * 20) : 0;
 
   const locationText = normalize(job.location);
   const workplaceType = requirements?.workplaceType ?? "unknown";
-  const preferredLocationMatched = !profile.preferredLocations.length ||
-    profile.preferredLocations.some((location) => locationText.includes(normalize(location)));
-  const remoteLocationCompatible = workplaceType === "remote" && ["any", "remote"].includes(profile.remotePreference);
+  const geographicPreferences = profile.preferredLocations.filter(place => !/^(remote|any|anywhere)$/i.test(place.trim()));
+  const preferredLocationMatched = geographicPreferences.length > 0 && geographicPreferences.some(place => containsTerm(locationText, place));
+  const remoteLocationCompatible = workplaceType === "remote" && ["any", "remote"].includes(profile.remotePreference) && (preferredLocationMatched || /\b(worldwide|anywhere in the world|global remote)\b/i.test(job.location));
   const location = preferredLocationMatched || remoteLocationCompatible ? 10 : locationText ? 3 : 6;
 
   const experienceSummary = deriveExperienceSummary(facts, job, requirements);
   const cvDerivedAvailable = Boolean(facts && experienceSummary.parseableEmploymentCount > 0);
   const derivedRelevantYears = experienceSummary.relevantYears;
-  const candidateExperienceYears = cvDerivedAvailable && derivedRelevantYears > 0
+  const candidateExperienceYears = cvDerivedAvailable
     ? derivedRelevantYears
     : profile.yearsExperience;
-  const experienceSource: ScoreBreakdown["experienceSource"] = cvDerivedAvailable && derivedRelevantYears > 0
+  const experienceSource: ScoreBreakdown["experienceSource"] = cvDerivedAvailable
     ? "cv-derived"
     : profile.yearsExperience > 0
       ? "profile"
@@ -216,9 +172,17 @@ export function scoreJob(
   }
   preference = Math.max(0, preference);
 
-  const total = Math.max(0, Math.min(100, Math.round(skills + title + location + experience + preference)));
+  let total = Math.max(0, Math.min(100, Math.round(skills + title + location + experience + preference)));
+  if (desiredTitles.length && titleOverlap === 0) total = Math.min(total, 49);
+  if (!desiredTitles.length && !candidate.length) total = 0;
   const reasons: string[] = [];
   const concerns: string[] = [];
+  if (!desiredTitles.length) concerns.push("Choose target roles in Profile; matching is provisional without your preferences.");
+  if (!candidate.length) concerns.push("No reviewed skills available. Review your CV or enter skills in Profile.");
+  if (desiredTitles.length && titleOverlap === 0) concerns.push("This role does not align with your chosen career targets.");
+  if (!requirements?.requiredSkills.length) concerns.push("Required skills not identified; the score is provisional, not proof of eligibility.");
+  if (workplaceType === "remote" && !preferredLocationMatched) concerns.push("Remote does not establish hiring eligibility in your country. Check residence and work-authorisation requirements.");
+  if (requirements?.qualifications.length) concerns.push("Check mandatory qualifications and professional registrations manually; a fit score does not verify them.");
 
   if (required.matched.length) reasons.push(`Matched required skills: ${required.matched.slice(0, 6).join(", ")}`);
   if (preferred.matched.length) reasons.push(`Matched preferred skills: ${preferred.matched.slice(0, 5).join(", ")}`);
@@ -226,7 +190,7 @@ export function scoreJob(
   if (requiredYears !== null && candidateExperienceYears >= requiredYears && !skillSpecificYearsUnverified) {
     reasons.push(`Experience threshold met (${requiredYears}+ years requested; ${candidateExperienceYears} years supported)`);
   }
-  if (titleOverlap >= 0.5) reasons.push("Job title overlaps with a current or target title");
+  if (titleOverlap >= 0.5) reasons.push("Job title aligns with your chosen target roles");
 
   if (required.missing.length) concerns.push(`Missing or unverified required skills: ${required.missing.slice(0, 8).join(", ")}`);
   if (skillSpecificYearsUnverified && skillSpecificExperience) {

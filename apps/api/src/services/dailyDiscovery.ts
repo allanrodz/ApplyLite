@@ -1,3 +1,4 @@
+import { targets } from "./matching.js";
 import {
   CandidateFactsSchema,
   DailyDiscoveryBriefSchema,
@@ -92,7 +93,7 @@ export function loadDailyDiscoverySettings(): DailyDiscoverySettings {
   return DailyDiscoverySettingsSchema.parse({
     enabled: Boolean(row?.enabled),
     runTime: String(row?.runTime ?? "08:00"),
-    targetTitles: storedTitles.length ? storedTitles : [profile.currentTitle, ...profile.targetTitles].filter(Boolean),
+    targetTitles: storedTitles.length ? storedTitles : targets(profile),
     locations: storedLocations.length ? storedLocations : [...profile.preferredLocations, profile.city, profile.country].filter(Boolean),
     minPreScore: Number(row?.minPreScore ?? 25),
     minFinalScore: Number(row?.minFinalScore ?? 60),
@@ -371,9 +372,9 @@ export async function runDailyDiscovery(trigger: "scheduled" | "manual") {
       maxDeepAnalysis: settings.maxDeepAnalysis,
       analysisConcurrency: settings.analysisConcurrency,
       useOutcomeLearning: settings.useOutcomeLearning,
-      entryLevelOnly: true,
-      broadEntryLevelIT: true,
-      includeRemoteUS: true
+      entryLevelOnly: false,
+      broadEntryLevelIT: false,
+      includeRemoteUS: false
     });
 
     const eligible = rescoreEligibleJobs(settings.useOutcomeLearning)
