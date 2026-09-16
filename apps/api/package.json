@@ -12,7 +12,8 @@
     "regression:m10": "tsx scripts/m10Regression.ts",
     "regression:discovery": "tsx scripts/discoveryRegression.ts",
     "regression:reliability": "tsx scripts/reliabilityRegression.ts",
-    "regression:browser": "tsx scripts/reliabilityBrowser.ts"
+    "regression:browser": "tsx scripts/reliabilityBrowser.ts",
+    "regression:edge": "tsx scripts/reviewEdgeRegression.ts"
   },
   "dependencies": {
     "@apply-lite/shared": "0.1.0",

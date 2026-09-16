@@ -1,3 +1,4 @@
+import { cvSectionAliases, sectionBoundaryAfterSkills } from "./reliabilityPolicy.js";
 import { z } from "zod";
 import { CandidateFactsSchema, type CandidateFacts } from "@apply-lite/shared";
 import { config } from "../config.js";
@@ -24,6 +25,7 @@ export function localDraft(raw: string): CandidateFacts {
   if (named) facts.fullName = named[1];
   else if (/^[\p{L}\p{M}' .-]+$/u.test(first) && first.split(/\s+/).length >= 2 && first.split(/\s+/).length <= 6 && !/\b(cv|resume|curriculum|vitae|profile|experience|engineer|developer|manager|assistant|nurse|education|contact|skills|professional|accountant|technician|designer|analyst)\b/i.test(first)) facts.fullName = first;
   const sections: Record<string, string> = {
+    ...cvSectionAliases,
     skills: "skills", "technical skills": "skills", "core skills": "skills", "key skills": "skills", "core competencies": "skills", habilidades: "skills", competencias: "skills", "competencias tecnicas": "skills",
     summary: "summary", profile: "summary", "professional summary": "summary", "personal profile": "summary", perfil: "summary", resumo: "summary",
     experience: "employment", employment: "employment", "work experience": "employment", "professional experience": "employment", "employment history": "employment", "experiencia profissional": "employment",
@@ -37,6 +39,7 @@ export function localDraft(raw: string): CandidateFacts {
     const key = line.normalize("NFD").replace(/\p{M}/gu, "").replace(/:$/, "").toLowerCase();
     if (sections[key]) { section = sections[key]; continue; }
     const skillLine = line.match(/^(?:skills|technical skills|habilidades|competencias)\s*:\s*(.+)$/i);
+    if (!skillLine && section === "skills" && sectionBoundaryAfterSkills(line)) { section = "other"; continue; }
     if (skillLine || section === "skills") facts.skills.push(...(skillLine?.[1] || line).split(/[,;|\u2022]/).map(s => s.trim()).filter(s => s && s.length <= 100));
     else if (section === "summary") summary.push(line);
     else if (section === "languages") facts.languages.push(...line.split(/[,;|]/));

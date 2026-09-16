@@ -1,23 +1,23 @@
 # Start ApplyLite on Windows
 
-Open PowerShell in the repository folder.
+For a one-command installation or data-preserving update, see the top-level README.md.
+For a manual checkout, open PowerShell in the project root and run:
 
 ```powershell
-Copy-Item .env.example .env
-npm install
-npx playwright install chromium
-ollama pull qwen3:8b
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+```
+
+Setup preserves existing `.env` files, installs locked dependencies and Playwright,
+and prints the exact `ollama pull <model>` command for your effective configuration.
+Fresh configurations use `qwen3:4b`; an existing explicit model setting is respected.
+Ollama is optional for importing, reviewing and editing a CV.
+
+Then start the app:
+
+```powershell
 npm run dev
 ```
 
-Open http://localhost:5173.
-
-## First-use order
-
-1. Open **Profile** and enter your candidate facts, target titles, skills and preferences.
-2. Open **Answer library** and add recurring answers such as work authorization, notice period and salary expectations.
-3. Go to **Dashboard -> Import job** and paste a real job posting.
-4. Review the fit score and breakdown.
-5. Click **Approve** for opportunities you want in the application queue.
-
-M0 deliberately stops before automatic submission.
+Open `http://localhost:5173`. In CV intelligence, import a draft, review/edit its facts,
+save reviewed facts, then merge into Profile. Choose your own target roles and locations
+before using Discover. Review all generated content and submit employer forms manually.
