@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect } from "react";
+import { useLocation, viewFromPath, navigate, guideTo, type View } from "./lib/navigation";
+import { GettingStarted } from "./components/GettingStarted";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AnswersPage } from "./pages/AnswersPage";
@@ -13,10 +15,11 @@ import { CareerCoachPage } from "./pages/CareerCoachPage";
 import { SystemPage } from "./pages/SystemPage";
 import { GmailPage } from "./pages/GmailPage";
 
-type View = "dashboard" | "daily" | "review" | "applications" | "gmail" | "coach" | "outcomes" | "discover" | "growth" | "cv" | "profile" | "answers" | "system";
-
 export function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const location = useLocation();
+  const view = viewFromPath(window.location.pathname);
+  const setView = (value: View) => navigate(value === "dashboard" ? "/" : `/${value}`);
+  useEffect(() => { if (window.location.hash) guideTo(window.location.hash.slice(1)); }, [location]);
 
   return (
     <div className="shell">
@@ -51,7 +54,9 @@ export function App() {
         </div>
       </aside>
 
-      <main className="content">
+      <main className="content" id="main-content">
+        {["dashboard","cv","profile","discover"].includes(view || "") && <GettingStarted />}
+        {!view && <section className="panel"><h1>Page not found</h1><button onClick={() => navigate("/")}>Go to Dashboard</button></section>}
         {view === "dashboard" && <DashboardPage />}
         {view === "daily" && <DailyBriefPage />}
         {view === "review" && <ReviewQueuePage />}

@@ -23,5 +23,6 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     catch { body = { error: text.slice(0, 500) }; }
   }
   if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
+  if (init?.method && /^(POST|PUT|PATCH|DELETE)$/i.test(init.method)) window.dispatchEvent(new Event("applylite:data"));
   return body as unknown as T;
 }

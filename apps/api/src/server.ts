@@ -1,3 +1,4 @@
+import { onboardingRoutes } from "./routes/onboarding.js";
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
@@ -55,6 +56,7 @@ await app.register(multipart, {
 
 app.get("/health", async () => ({ ok: true, service: "apply-lite-api", version: config.version }));
 await app.register(profileRoutes);
+await app.register(onboardingRoutes);
 await app.register(answerRoutes);
 await app.register(jobRoutes);
 await app.register(aiRoutes);

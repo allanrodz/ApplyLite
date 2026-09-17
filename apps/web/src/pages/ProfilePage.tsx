@@ -1,3 +1,4 @@
+import { navigate, guideTo } from "../lib/navigation";
 import { useEffect, useState } from "react";
 import { ProfileSchema, type AutofillMapping, type Profile } from "@apply-lite/shared";
 import { API_BASE, api } from "../lib/api";
@@ -32,7 +33,7 @@ export function ProfilePage() {
     try {
       const saved = await api<Profile>("/profile", { method: "PUT", body: JSON.stringify({ ...profile, ...Object.fromEntries(Object.entries(listDraft).map(([key, value]) => [key, parseCsv(value)])) }) });
       setProfile(saved);
-      setMessage("Profile saved locally.");
+      setMessage("Profile saved locally."); guideTo("profile-discover");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not save profile");
     } finally {
@@ -67,9 +68,9 @@ export function ProfilePage() {
           <label>Country<input value={profile.country} onChange={(e) => setProfile({ ...profile, country: e.target.value })} /></label>
           <label>Current title<input value={profile.currentTitle} onChange={(e) => setProfile({ ...profile, currentTitle: e.target.value })} /></label>
           <label>Years experience<input type="number" min="0" value={profile.yearsExperience} onChange={(e) => setProfile({ ...profile, yearsExperience: Number(e.target.value) })} /></label>
-          <label className="full">Target titles<input value={listDraft.targetTitles} onChange={(e) => setListDraft({ ...listDraft, targetTitles: e.target.value })} placeholder="Your desired job titles, separated by commas" /></label>
+          <label className="full">Target titles<input id="target-roles" value={listDraft.targetTitles} onChange={(e) => setListDraft({ ...listDraft, targetTitles: e.target.value })} placeholder="Your desired job titles, separated by commas" /></label>
           <label className="full">Skills<textarea rows={4} value={listDraft.skills} onChange={(e) => setListDraft({ ...listDraft, skills: e.target.value })} placeholder="Skills from your CV, separated by commas" /></label>
-          <label className="full">Preferred locations<input value={listDraft.preferredLocations} onChange={(e) => setListDraft({ ...listDraft, preferredLocations: e.target.value })} placeholder="Dublin, Ireland, Remote" /></label>
+          <label className="full">Preferred locations<input id="preferred-locations" value={listDraft.preferredLocations} onChange={(e) => setListDraft({ ...listDraft, preferredLocations: e.target.value })} placeholder="Dublin, Ireland, Remote" /></label>
           <label>Remote preference<select value={profile.remotePreference} onChange={(e) => setProfile({ ...profile, remotePreference: e.target.value as Profile["remotePreference"] })}><option value="any">Any</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select></label>
           <label>Minimum salary<input type="number" min="0" value={profile.minimumSalary ?? ""} onChange={(e) => setProfile({ ...profile, minimumSalary: e.target.value ? Number(e.target.value) : null })} /></label>
           <label className="full">Work authorisation<input value={profile.workAuthorization} onChange={(e) => setProfile({ ...profile, workAuthorization: e.target.value })} /></label>
@@ -82,6 +83,7 @@ export function ProfilePage() {
         </div>
         <div className="actions"><button className="primary" disabled={saving}>{saving ? "Saving..." : "Save profile"}</button></div>
       </form>
+      <section className="panel" id="profile-discover"><h2>Continue to opportunities</h2><p>Target roles guide your search. Other preferences can be adjusted later.</p><button disabled={!listDraft.targetTitles.trim()} onClick={() => navigate("/discover")}>Discover jobs</button></section>
     </>
   );
 }

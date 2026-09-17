@@ -1,3 +1,4 @@
+import { writeSetting } from "../services/onboarding.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -112,6 +113,7 @@ export async function cvRoutes(app: FastifyInstance) {
     const merged = ProfileSchema.parse({ ...profile, firstName: profile.firstName || parts[0] || "", lastName: profile.lastName || parts.slice(1).join(" "), email: profile.email || facts.email, phone: profile.phone || facts.phone,
       currentTitle: profile.currentTitle || facts.employment[0]?.title || facts.headline, skills: unique([...profile.skills, ...facts.skills]), summary: profile.summary || facts.summary });
     db.prepare("INSERT INTO profile(id,data_json,updated_at) VALUES(1,?,CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,updated_at=CURRENT_TIMESTAMP").run(JSON.stringify(merged));
+    writeSetting("profileCvId", row.id);
     return { ok: true, profile: merged };
   });
 }
