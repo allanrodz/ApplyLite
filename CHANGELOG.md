@@ -1,3 +1,20 @@
+# 0.16.2 - Fast saved views and background package alerts
+
+- Stop synchronous rescoring of every saved discovery job whenever Discover opens.
+- SQL-page common discovery views and preserve the last Discovery URL/results for instant cache-first navigation.
+- Make Dashboard request only focused/actioned jobs instead of loading the entire discovery inbox.
+- Run the main Generate application package action through the existing background preparation queue.
+- Add persistent cross-page package activity alerts with ready/failed actions and optional OS notification when already permitted.
+- Add a regression proving discovery reads are bounded/side-effect-free and Dashboard loads only focused jobs.
+
+# 0.16.1 - Discovery inbox and focused application workspace
+
+- Keep broad, potentially low-score discovery results on Discover instead of flooding Dashboard.
+- Add an explicit Move to Dashboard action for jobs the user may actually pursue.
+- Keep direct/manual imports and jobs with existing applications visible in Dashboard.
+- Add Discover → Dashboard → package → assisted-apply guidance in both screens.
+- Preserve existing CV/cover-letter generation, application preparation and manual final-submit safety.
+
 # 0.16.0 - CV-to-discovery workflow candidate
 
 - URL-backed navigation, readiness guidance, missing-field focus and explicit role suggestions.

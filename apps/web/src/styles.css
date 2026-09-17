@@ -952,3 +952,15 @@ textarea { resize: vertical; line-height: 1.5; }
 .task-progress{border:1px solid #d3dce8;border-radius:12px;background:#f8faff;padding:18px;margin:14px 0}.task-progress progress{width:100%;height:14px;accent-color:#3267a8}.task-counts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.task-counts span{background:#eaf0f7;padding:5px 8px;border-radius:6px;font-size:12px}.task-error{color:#8c3028}.activity-centre{font-size:13px}.activity-centre button{display:grid;gap:3px;text-align:left;width:100%;margin-top:6px}.activity-centre small{font-weight:400}.sidebar{gap:20px;overflow-y:auto}
 .discovery-filter-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-bottom:12px}.filter-checks{display:flex;gap:16px;flex-wrap:wrap}.filter-checks .choice-row{font-size:12px;padding:4px 0}.broad-job-list{display:grid;gap:14px;margin-top:20px}.broad-job-card{border:1px solid #dce3ed;border-radius:12px;padding:20px}.job-card-heading{display:flex;align-items:center;gap:14px}.job-card-heading div{flex:1;min-width:0}.job-card-heading h3{margin:0 0 4px}.job-card-heading p{margin:0;color:#59687a}.score-kind{font-size:12px;color:#466181}.source-preview{white-space:pre-wrap;max-height:320px;overflow:auto}.broad-job-card details{padding:8px 0}.source-row small{display:block;max-width:650px;overflow-wrap:anywhere}
 @media(max-width:750px){.discovery-filter-grid{grid-template-columns:1fr}.job-card-heading{flex-wrap:wrap}.setup-guide{padding:14px}.sidebar{position:static;height:auto}.content{padding:20px}.shell{grid-template-columns:1fr}.sidebar nav{grid-template-columns:repeat(3,1fr)}}
+
+
+.package-notification-stack { position: fixed; right: 22px; bottom: 22px; z-index: 1200; width: min(430px, calc(100vw - 36px)); display: grid; gap: 10px; }
+.package-notification { background: #fff; border: 1px solid #dfe4eb; border-radius: 15px; padding: 16px; box-shadow: 0 18px 48px rgba(17, 24, 39, .18); display: grid; gap: 12px; }
+.package-notification > div:first-child { display: grid; gap: 5px; }
+.package-notification strong { font-size: 15px; color: #1f2a3d; }
+.package-notification small { color: #7a8698; }
+.package-notification p { margin: 3px 0 0; color: #667286; font-size: 13px; line-height: 1.45; }
+.package-notification.ready { border-color: #badfc5; }
+.package-notification.failed { border-color: #ebcbc6; }
+.package-notification-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 720px) { .package-notification-stack { right: 12px; bottom: 12px; width: calc(100vw - 24px); } }

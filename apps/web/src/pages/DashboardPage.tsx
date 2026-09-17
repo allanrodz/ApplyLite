@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApplicationPackage, ApplicationTrackerOverview, BrowserSessionResult, JobInput, JobRequirements, ScoreBreakdown } from "@apply-lite/shared";
 import { API_BASE, api } from "../lib/api";
+import { navigate } from "../lib/navigation";
+import { watchPackageGeneration } from "../components/PackageNotifications";
 
 type Job = JobInput & {
   id: number;
@@ -92,7 +94,7 @@ export function DashboardPage() {
 
   async function refresh(learned = useOutcomeLearning) {
     const [jobRows, applicationRows, trackerRows] = await Promise.all([
-      api<Job[]>(`/jobs?learned=${learned ? "1" : "0"}`),
+      api<Job[]>(`/jobs?workspace=1&learned=${learned ? "1" : "0"}`),
       api<Application[]>("/applications"),
       api<ApplicationTrackerOverview>("/tracker/overview")
     ]);
@@ -116,11 +118,16 @@ export function DashboardPage() {
   }, [selected?.id]);
 
   const trackerByJobId = useMemo(() => new Map((trackerOverview?.items ?? []).map((item) => [item.jobId, item])), [trackerOverview]);
-  const organizedJobs = useMemo(() => jobs.map((job) => {
+  const workspaceJobs = useMemo(() => jobs.filter((job) => {
+    const hasApplication = applications.some((item) => item.jobId === job.id);
+    return job.origin !== "discovery" || job.status === "FOCUSED" || job.status === "NOT_PURSUING" || hasApplication;
+  }), [jobs, applications]);
+
+  const organizedJobs = useMemo(() => workspaceJobs.map((job) => {
     const application = applications.find((item) => item.jobId === job.id);
     const trackerItem = trackerByJobId.get(job.id);
     return { job, application, trackerItem, bucket: dashboardBucket(job, application, trackerItem) };
-  }), [jobs, applications, trackerByJobId]);
+  }), [workspaceJobs, applications, trackerByJobId]);
 
   const selectedMeta = selected ? organizedJobs.find((item) => item.job.id === selected.id) : undefined;
   const selectedApplication = selectedMeta?.application;
@@ -147,7 +154,7 @@ export function DashboardPage() {
   const visibleJobs = useMemo(() => activeTab === "ALL" ? organizedJobs : organizedJobs.filter((item) => item.bucket === activeTab), [organizedJobs, activeTab]);
 
   const emptyTabMessage = activeTab === "OPPORTUNITIES"
-    ? "No active opportunities. New discoveries and restored jobs will appear here."
+    ? "No focused opportunities yet. Move promising jobs from Discover, or import a specific employer posting."
     : activeTab === "SUBMITTED"
       ? "No submitted applications yet."
       : activeTab === "CLOSED"
@@ -209,7 +216,7 @@ export function DashboardPage() {
     }
   }
 
-  async function setWorkspaceStatus(jobId: number, status: "SCORED" | "NOT_PURSUING") {
+  async function setWorkspaceStatus(jobId: number, status: "SCORED" | "FOCUSED" | "NOT_PURSUING") {
     await api(`/jobs/${jobId}/workspace-status`, {
       method: "PATCH",
       body: JSON.stringify({ status })
@@ -256,7 +263,7 @@ export function DashboardPage() {
           body: JSON.stringify({ outcome: restoredOutcome, note: "Restored from the Closed dashboard tab." })
         });
       }
-      await setWorkspaceStatus(job.id, "SCORED");
+      await setWorkspaceStatus(job.id, job.origin === "discovery" ? "FOCUSED" : "SCORED");
       await refresh();
       setNotice(application?.state === "SUBMITTED" || trackerItem?.submittedAt
         ? "Restored. This job is back under Submitted."
@@ -268,36 +275,21 @@ export function DashboardPage() {
     }
   }
 
-  async function queueM7Preparation(jobId: number) {
-    setPackageLoading(true);
-    setError("");
-    setNotice("Queueing this job for M7 background application preparation...");
-    try {
-      const result = await api<{ queued: boolean; reason?: string }>(`/application-prep/jobs/${jobId}/queue`, { method: "POST", body: "{}" });
-      setNotice(result.queued ? "Queued for M7. The Review Queue will update while Qwen prepares and audits the package." : (result.reason ?? "This job is already in the M7 queue."));
-      await refresh();
-    } catch (e) {
-      setNotice("");
-      setError(e instanceof Error ? e.message : "Could not queue this job for M7 preparation");
-    } finally {
-      setPackageLoading(false);
-    }
-  }
-
   async function generatePackage(jobId: number) {
     setPackageLoading(true);
     setError("");
-    setNotice("Generating an evidence-grounded CV, cover letter, screening drafts, and factual audit with local Qwen3...");
+    setNotice("Starting package generation in the background...");
     try {
-      const generated = await api<ApplicationPackage>(`/jobs/${jobId}/generate-package`, { method: "POST", body: "{}" });
-      setApplicationPackage(generated);
-      setNotice(generated.generation.readyToUse
-        ? `Application package generated. Evidence audit: ${generated.status}. Review it before using any document.`
-        : "Package generated in fallback mode because local AI could not complete a core document. ApplyLite will not auto-upload it; regenerate after Ollama is healthy.");
-      await refresh();
+      const result = await api<{ queued: boolean; id?: number; reason?: string }>(`/application-prep/jobs/${jobId}/queue`, { method: "POST", body: "{}" });
+      if (result.id && selected) {
+        watchPackageGeneration({ id: result.id, jobId, title: selected.title, company: selected.company });
+      }
+      setNotice(result.queued
+        ? "Package generation started in the background. Go browse other opportunities — ApplyLite will alert you when the tailored CV and cover letter are ready."
+        : (result.reason ?? "This package is already queued or ready. ApplyLite will keep watching it."));
     } catch (e) {
       setNotice("");
-      setError(e instanceof Error ? e.message : "Could not generate application package");
+      setError(e instanceof Error ? e.message : "Could not start background application package generation");
     } finally {
       setPackageLoading(false);
     }
@@ -405,7 +397,7 @@ export function DashboardPage() {
         <div>
           <span className="eyebrow">LOCAL WORKSPACE</span>
           <h1>Your application pipeline</h1>
-          <p>Paste an employer job URL. ApplyLite reads the posting locally, separates required from preferred criteria, and scores it against your factual CV memory.</p>
+          <p>Your focused application workspace. Jobs only appear here after you move them from Discover, import them directly, or begin an application.</p>
         </div>
         <div className="page-header-actions">
           <label className="learning-toggle">
@@ -416,6 +408,19 @@ export function DashboardPage() {
         </div>
       </header>
 
+      <section className="panel">
+        <div className="panel-title">
+          <div><span className="eyebrow">HOW THE PIPELINE WORKS</span><h2>Discover broadly, act selectively</h2></div>
+          <button onClick={() => navigate("/discover")}>Browse discovery</button>
+        </div>
+        <div className="stats-grid">
+          <article><span>1 · Discover</span><strong>Browse broadly</strong><small>Discovery can hold many low- and high-score jobs without crowding this workspace.</small></article>
+          <article><span>2 · Focus</span><strong>Move promising jobs here</strong><small>Use “Move to Dashboard” only for roles you may actually pursue.</small></article>
+          <article><span>3 · Prepare</span><strong>Generate your package</strong><small>Create the tailored CV and cover letter, then review the evidence audit.</small></article>
+          <article><span>4 · Apply</span><strong>Use assisted filling</strong><small>Open the employer form, let ApplyLite help fill it, and personally review and submit.</small></article>
+        </div>
+      </section>
+
       {error && <div className="alert">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
 
@@ -423,7 +428,7 @@ export function DashboardPage() {
         <article><span>Opportunities</span><strong>{stats.opportunities}</strong></article>
         <article><span>Submitted</span><strong>{stats.submitted}</strong></article>
         <article><span>Closed</span><strong>{stats.closed}</strong></article>
-        <article><span>All jobs</span><strong>{stats.jobs}</strong></article>
+        <article><span>Focused jobs</span><strong>{stats.jobs}</strong></article>
       </section>
 
       {showImport && (
@@ -608,7 +613,7 @@ export function DashboardPage() {
                 <div><span className="eyebrow">M3 APPLICATION PACKAGE</span><h3>Evidence-grounded application</h3></div>
                 {applicationPackage && <span className={`audit-pill ${applicationPackage.status.toLowerCase()}`}>{applicationPackage.status === "PASS" ? "Audit passed" : "Review flags"}</span>}
               </div>
-              <p className="muted">Qwen selects verified CV evidence for the resume, drafts the letter and screening responses, then a second pass audits generated factual claims.</p>
+              <p className="muted">Package generation runs in the background. Start it, keep browsing other jobs, and ApplyLite will alert you when the tailored CV and cover letter are ready to review.</p>
               {applicationPackage && !applicationPackage.generation.readyToUse && (
                 <div className="package-degraded">
                   <strong>PACKAGE DEGRADED · REVIEW REQUIRED</strong>
@@ -631,9 +636,7 @@ export function DashboardPage() {
                 <button className="primary package-generate" onClick={() => generatePackage(selected.id)} disabled={packageLoading}>
                   {packageLoading ? "Working..." : applicationPackage ? "Regenerate package" : "Generate application package"}
                 </button>
-                {!applicationPackage && (
-                  <button onClick={() => queueM7Preparation(selected.id)} disabled={packageLoading}>Queue background prep</button>
-                )}
+                <button onClick={() => navigate("/discover")}>Browse more jobs</button>
               </div>
 
               {applicationPackage && (

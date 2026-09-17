@@ -4,6 +4,7 @@ import { ApplicationPrepSettingsSchema } from "@apply-lite/shared";
 import {
   dismissApplicationPrepItem,
   enqueueBriefForPreparation,
+  getApplicationPrepItem,
   getApplicationPrepStatus,
   listApplicationPrepQueue,
   loadApplicationPrepSettings,
@@ -29,6 +30,13 @@ export async function applicationPrepRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { limit?: string } }>("/application-prep/queue", async (request) => {
     return listApplicationPrepQueue(Number(request.query.limit ?? 50));
+  });
+
+  app.get<{ Params: { id: string } }>("/application-prep/items/:id", async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) return reply.code(400).send({ error: "Invalid preparation item id" });
+    const item = getApplicationPrepItem(id);
+    return item ?? reply.code(404).send({ error: "Preparation item not found" });
   });
 
   app.post<{ Params: { briefId: string } }>("/application-prep/briefs/:briefId/queue", async (request, reply) => {

@@ -1332,33 +1332,69 @@ export async function analyzeStoredJob(id:number,analyze=(e:JobPageEvidence)=>ex
  }
 }
 export type ResultFilters={runId?:number;minScore?:number;band?:string;strictTitle?:boolean;entryLevelOnly?:boolean;hideSenior?:boolean;strictLocation?:boolean;remoteOnly?:boolean;includeRemoteUS?:boolean;analysis?:string;query?:string;offset?:number;limit?:number};
+
 export function getDiscoveryResults(filters:ResultFilters={}){
- const profile=savedProfile(),cv=reviewedCv(),hash=profileHash(profile);
- const rows=db.prepare(`SELECT j.*,j.source_url AS sourceUrl,j.salary_text AS salaryText,j.score_kind AS scoreKind,j.analysis_status AS analysisStatus FROM jobs j ${filters.runId?"JOIN discovery_run_jobs r ON r.job_id=j.id WHERE r.run_id=?":"WHERE j.origin='discovery' OR EXISTS (SELECT 1 FROM discovery_run_jobs r WHERE r.job_id=j.id)"} ORDER BY j.score DESC,j.id DESC`).all(...(filters.runId?[filters.runId]:[])) as any[];
- const items=rows.map(row=>{let scoreBreakdown:any={},requirements:JobRequirements=JobRequirementsSchema.parse({});try{scoreBreakdown=JSON.parse(row.score_json);requirements=JobRequirementsSchema.parse(JSON.parse(row.analysis_json));}catch{}
- if(row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)){
-   const base=scoreJob(profile,JobInputSchema.parse(row),requirements,cv?.facts);
-   if(row.scoreKind==="quick")base.matchedSkills=mentionedSkills(profile,cv?.facts||null,row.description);
-   const enabled=scoreBreakdown.outcomeLearningEnabled!==false;scoreBreakdown={...applyOutcomeLearning(base,row,requirements,enabled),outcomeLearningEnabled:enabled};row.score=scoreBreakdown.total;
-   db.prepare("UPDATE jobs SET score=?,score_json=?,score_profile_hash=?,score_cv_id=? WHERE id=?").run(row.score,JSON.stringify(scoreBreakdown),hash,cv?.id||null,row.id);
-   row.score_profile_hash=hash;row.score_cv_id=cv?.id||null;
- }
- return{id:row.id,title:row.title,company:row.company,location:row.location,sourceUrl:row.sourceUrl,salaryText:row.salaryText,description:row.description,ats:row.ats,score:row.score,scoreKind:row.scoreKind,analysisStatus:row.analysisStatus,preScore:row.pre_score,scoreBreakdown,requirements,stale:row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)};});
- items.sort((a,b)=>b.score-a.score||b.id-a.id);
- const counts={all:items.length,strong:items.filter(j=>j.score>=75).length,possible:items.filter(j=>j.score>=50&&j.score<75).length,stretch:items.filter(j=>j.score<50).length,notDeep:items.filter(j=>j.scoreKind!=="deep").length};
- const filtered=items.filter(j=>{
-  if(j.score<(filters.minScore||0))return false;
-  if(filters.band==="strong"&&j.score<75||filters.band==="possible"&&(j.score<50||j.score>=75)||filters.band==="stretch"&&j.score>=50)return false;
-  if(filters.analysis==="quick"&&j.scoreKind==="deep"||filters.analysis==="deep"&&j.scoreKind!=="deep")return false;
-  if(filters.query&&!`${j.title} ${j.company} ${j.description}`.toLowerCase().includes(filters.query.toLowerCase()))return false;
-  if(filters.strictTitle&&!titleAlignmentScore(j.title,targets(profile)).aligned)return false;
-  if(filters.entryLevelOnly&&!entryLevelEligibility(j.title,j.description).allowed)return false;
-  if(filters.hideSenior&&/\b(senior|staff|principal|lead|director|head of)\b/i.test(j.title))return false;
-  const geo=locationEligibility(j.location,j.description,[...profile.preferredLocations,profile.city,profile.country].filter(Boolean),profile.remotePreference);
-  if(filters.strictLocation&&!geo.allowed||filters.remoteOnly&&j.requirements.workplaceType!=="remote"||filters.includeRemoteUS===false&&geo.remote&&geo.usScope)return false;return true;
- });
+ const profile=savedProfile(),cv=reviewedCv(),hash=profileHash(profile),cvId=cv?.id||null;
  const limit=Math.max(1,Math.min(100,filters.limit||30)),offset=Math.max(0,filters.offset||0);
- return {items:filtered.slice(offset,offset+limit),counts,total:filtered.length,offset,limit,hasMore:offset+limit<filtered.length};
+ const from=filters.runId?"FROM jobs j JOIN discovery_run_jobs r ON r.job_id=j.id":"FROM jobs j";
+ const scopeClauses=filters.runId?["r.run_id = ?"]:["(j.origin='discovery' OR EXISTS (SELECT 1 FROM discovery_run_jobs drj WHERE drj.job_id=j.id))"];
+ const scopeParams:any[]=filters.runId?[filters.runId]:[];
+
+ const countsRow=db.prepare(`
+  SELECT COUNT(*) AS allCount,
+         SUM(CASE WHEN j.score>=75 THEN 1 ELSE 0 END) AS strong,
+         SUM(CASE WHEN j.score>=50 AND j.score<75 THEN 1 ELSE 0 END) AS possible,
+         SUM(CASE WHEN j.score<50 THEN 1 ELSE 0 END) AS stretch,
+         SUM(CASE WHEN j.score_kind<>'deep' THEN 1 ELSE 0 END) AS notDeep
+  ${from} WHERE ${scopeClauses.join(" AND ")}
+ `).get(...scopeParams) as any;
+ const counts={all:Number(countsRow?.allCount||0),strong:Number(countsRow?.strong||0),possible:Number(countsRow?.possible||0),stretch:Number(countsRow?.stretch||0),notDeep:Number(countsRow?.notDeep||0)};
+
+ const clauses=[...scopeClauses],params=[...scopeParams];
+ if((filters.minScore||0)>0){clauses.push("j.score >= ?");params.push(filters.minScore);}
+ if(filters.band==="strong")clauses.push("j.score >= 75");
+ if(filters.band==="possible")clauses.push("j.score >= 50 AND j.score < 75");
+ if(filters.band==="stretch")clauses.push("j.score < 50");
+ if(filters.analysis==="quick")clauses.push("j.score_kind <> 'deep'");
+ if(filters.analysis==="deep")clauses.push("j.score_kind = 'deep'");
+ if(filters.query){clauses.push("LOWER(j.title || ' ' || j.company || ' ' || j.description) LIKE ?");params.push(`%${filters.query.toLowerCase()}%`);}
+ if(filters.hideSenior){
+   for(const term of ["senior","staff","principal","lead","director","head of"]){clauses.push("LOWER(j.title) NOT LIKE ?");params.push(`%${term}%`);}
+ }
+
+ const advanced=Boolean(filters.strictTitle||filters.entryLevelOnly||filters.strictLocation||filters.remoteOnly||filters.includeRemoteUS===false);
+ const select=`SELECT j.id,j.source_url AS sourceUrl,j.title,j.company,j.location,j.salary_text AS salaryText,j.description,j.ats,j.score,j.score_json,j.analysis_json,j.pre_score,j.score_kind AS scoreKind,j.analysis_status AS analysisStatus,j.score_profile_hash,j.score_cv_id,
+   CASE WHEN j.origin<>'discovery' OR j.status IN ('FOCUSED','NOT_PURSUING') OR EXISTS (SELECT 1 FROM applications a WHERE a.job_id=j.id) THEN 1 ELSE 0 END AS inWorkspace
+   ${from} WHERE ${clauses.join(" AND ")} ORDER BY j.score DESC,j.id DESC`;
+
+ const rawRows=advanced
+   ? db.prepare(select).all(...params) as any[]
+   : db.prepare(`${select} LIMIT ? OFFSET ?`).all(...params,limit,offset) as any[];
+
+ const mapRow=(row:any)=>{
+  let scoreBreakdown:any={},requirements:JobRequirements=JobRequirementsSchema.parse({});
+  try{scoreBreakdown=JSON.parse(row.score_json||"{}");requirements=JobRequirementsSchema.parse(JSON.parse(row.analysis_json||"{}"));}catch{}
+  return{id:row.id,title:row.title,company:row.company,location:row.location,sourceUrl:row.sourceUrl,salaryText:row.salaryText,description:row.description,ats:row.ats,score:Number(row.score||0),scoreKind:row.scoreKind,analysisStatus:row.analysisStatus,inWorkspace:Boolean(row.inWorkspace),preScore:row.pre_score,scoreBreakdown,requirements,stale:row.score_profile_hash!==hash||row.score_cv_id!==cvId};
+ };
+ let items=rawRows.map(mapRow);
+
+ if(advanced){
+  items=items.filter(j=>{
+   if(filters.strictTitle&&!titleAlignmentScore(j.title,targets(profile)).aligned)return false;
+   if(filters.entryLevelOnly&&!entryLevelEligibility(j.title,j.description).allowed)return false;
+   const geo=locationEligibility(j.location,j.description,[...profile.preferredLocations,profile.city,profile.country].filter(Boolean),profile.remotePreference);
+   if(filters.strictLocation&&!geo.allowed)return false;
+   if(filters.remoteOnly&&j.requirements.workplaceType!=="remote")return false;
+   if(filters.includeRemoteUS===false&&geo.remote&&geo.usScope)return false;
+   return true;
+  });
+  const total=items.length;
+  return {items:items.slice(offset,offset+limit),counts,total,offset,limit,hasMore:offset+limit<total};
+ }
+
+ const totalRow=db.prepare(`SELECT COUNT(*) AS total ${from} WHERE ${clauses.join(" AND ")}`).get(...params) as any;
+ const total=Number(totalRow?.total||0);
+ return {items,counts,total,offset,limit,hasMore:offset+limit<total};
 }
 let discoveryRunning=false;
 export function isDiscoveryRunning(){return discoveryRunning;}
