@@ -12,6 +12,8 @@ type ExperienceSummary = {
 };
 
 export function ProfilePage() {
+  const [suggestions,setSuggestions] = useState<{cvId:number|null;suggestions:{title:string;confidence:number;evidence:string[]}[]}>({cvId:null,suggestions:[]});
+  const [selectedRoles,setSelectedRoles] = useState<string[]>([]);
   const [profile, setProfile] = useState<Profile>(ProfileSchema.parse({}));
   const [experience, setExperience] = useState<ExperienceSummary | null>(null);
   const [message, setMessage] = useState("");
@@ -24,6 +26,8 @@ export function ProfilePage() {
       .then(([savedProfile, summary, learnedMappings]) => { setProfile(savedProfile); setListDraft({ targetTitles: savedProfile.targetTitles.join(", "), skills: savedProfile.skills.join(", "), preferredLocations: savedProfile.preferredLocations.join(", ") }); setExperience(summary); setMappings(learnedMappings); })
       .catch((e) => setMessage(e.message));
   }, []);
+
+  useEffect(()=>{void api<typeof suggestions>("/profile/role-suggestions").then(setSuggestions).catch(()=>{});},[]);
 
   const parseCsv = (value: string) => value.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean);
 
@@ -58,6 +62,7 @@ export function ProfilePage() {
           <p>Job-specific scoring now derives relevant experience from your employment dates. The manual Years experience field remains a fallback only when CV evidence cannot be calculated.</p>
         </section>
       )}
+      {suggestions.suggestions.length > 0 && <section className="panel" id="role-suggestions"><h2>Suggested roles from your reviewed CV</h2><p>Suggestions are preferences, not claims of qualification. Choose only the roles you want.</p>{suggestions.suggestions.map(s=><label className="choice-row" key={s.title}><input type="checkbox" checked={selectedRoles.includes(s.title)} onChange={e=>setSelectedRoles(old=>e.target.checked?[...old,s.title]:old.filter(t=>t!==s.title))}/><span><strong>{s.title}</strong><small>{s.confidence>=0.8?"Direct CV title":"Related skills suggestion"}: {s.evidence.join("; ")}</small></span></label>)}<button disabled={!selectedRoles.length || saving} onClick={()=>{setListDraft(old=>({...old,targetTitles:[...new Set([...parseCsv(old.targetTitles),...selectedRoles])].join(", ")}));setSelectedRoles([]);setMessage("Selected suggestions added to the form. Save profile to confirm your choices.");guideTo("target-roles");}}>Use selected suggestions</button></section>}
       <form className="panel" onSubmit={save}>
         <div className="form-grid">
           <label>First name<input value={profile.firstName} onChange={(e) => setProfile({ ...profile, firstName: e.target.value })} /></label>

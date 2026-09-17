@@ -1,3 +1,4 @@
+import { enrichLocalDraft } from "./cvParsing.js";
 import { cvSectionAliases, sectionBoundaryAfterSkills } from "./reliabilityPolicy.js";
 import { z } from "zod";
 import { CandidateFactsSchema, type CandidateFacts } from "@apply-lite/shared";
@@ -55,7 +56,7 @@ export function localDraft(raw: string): CandidateFacts {
   facts.summary = summary.join(" ").slice(0, 4000);
   for (const key of ["skills", "languages", "certifications"] as const) facts[key] = unique(facts[key]);
   facts.evidenceNotes = ["Offline draft: review every field. Missing entries may reflect an unrecognized layout, not missing experience. The full source is retained."];
-  return facts;
+  return enrichLocalDraft(facts, raw);
 }
 
 /** Validate shape, then remove invented/rewritten values. Grouping must still be reviewed. */
@@ -67,6 +68,7 @@ export function groundFacts(value: unknown, raw: string): CandidateFacts {
   const scalar = (s: string) => { if (!s || containsSource(raw, s)) return s; removed++; return ""; };
   const list = (items: string[]) => unique(items.map(scalar).filter(Boolean));
   const result = CandidateFactsSchema.parse({
+    linkedinUrl: scalar(parsed.linkedinUrl), githubUrl: scalar(parsed.githubUrl), portfolioUrl: scalar(parsed.portfolioUrl), city: scalar(parsed.city), country: scalar(parsed.country),
     fullName: scalar(parsed.fullName), email: scalar(parsed.email), phone: scalar(parsed.phone), headline: scalar(parsed.headline), summary: scalar(parsed.summary),
     skills: list(parsed.skills), certifications: list(parsed.certifications), languages: list(parsed.languages),
     employment: parsed.employment.map(e => ({ employer: scalar(e.employer), title: scalar(e.title), startDate: scalar(e.startDate), endDate: scalar(e.endDate), location: scalar(e.location), bullets: list(e.bullets) })).filter(e => e.title || e.employer),
@@ -79,7 +81,7 @@ export function groundFacts(value: unknown, raw: string): CandidateFacts {
 }
 export function mergeFacts(base: CandidateFacts, extra: CandidateFacts): CandidateFacts {
   const combined = { ...base };
-  for (const key of ["fullName", "email", "phone", "headline", "summary"] as const) combined[key] = extra[key] || base[key];
+  for (const key of ["fullName", "email", "phone", "headline", "summary", "linkedinUrl", "githubUrl", "portfolioUrl", "city", "country"] as const) combined[key] = extra[key] || base[key];
   for (const key of ["skills", "languages", "certifications", "evidenceNotes"] as const) combined[key] = unique([...base[key], ...extra[key]]);
   for (const key of ["employment", "education", "projects"] as const) {
     (combined as any)[key] = [...new Map([...base[key], ...extra[key]].map(entry => [JSON.stringify(entry), entry])).values()];

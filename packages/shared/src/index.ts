@@ -70,6 +70,11 @@ export const ProjectFactSchema = z.object({
 });
 
 export const CandidateFactsSchema = z.object({
+  linkedinUrl: z.string().default(""),
+  githubUrl: z.string().default(""),
+  portfolioUrl: z.string().default(""),
+  city: z.string().default(""),
+  country: z.string().default(""),
   fullName: z.string().default(""),
   email: z.string().default(""),
   phone: z.string().default(""),

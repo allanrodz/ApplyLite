@@ -1,3 +1,4 @@
+import { cvDiagnostics } from "../services/cvParsing.js";
 import { writeSetting } from "../services/onboarding.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -18,7 +19,7 @@ type DraftRow = CvRow & { status: string; message: string; revision: number; pub
 const current = () => db.prepare("SELECT * FROM cv_documents ORDER BY id DESC LIMIT 1").get() as CvRow | undefined;
 const draft = (id: number) => db.prepare("SELECT * FROM cv_imports WHERE id=?").get(id) as DraftRow | undefined;
 const encode = (row: CvRow) => ({ id: row.id, sourceName: row.source_name, sourceType: row.source_type, rawText: row.raw_text, facts: CandidateFactsSchema.parse(JSON.parse(row.facts_json)), createdAt: row.created_at });
-const encodeDraft = (row: DraftRow) => ({ ...encode(row), status: row.status, message: row.message, revision: row.revision, publishedCvId: row.published_cv_id });
+const encodeDraft = (row: DraftRow) => ({ ...encode(row), status: row.status, message: row.message, revision: row.revision, publishedCvId: row.published_cv_id, diagnostics: cvDiagnostics(encode(row).facts) });
 let active: number | null = null;
 function saveDraft(name: string, type: string, text: string, facts = localDraft(text)) {
   const result = db.prepare("INSERT INTO cv_imports(source_name,source_type,raw_text,facts_json,status,message) VALUES(?,?,?,?,'draft','Review the local draft, or use optional AI enhancement.')").run(name, type, text, JSON.stringify(facts));
@@ -111,7 +112,8 @@ export async function cvRoutes(app: FastifyInstance) {
     if (existingName && facts.fullName && existingName !== facts.fullName.toLocaleLowerCase()) return reply.code(409).send({ error: "CV and Profile names differ. Check and edit Profile first. Each installation is a single-person workspace." });
     const parts = facts.fullName.trim().split(/\s+/).filter(Boolean);
     const merged = ProfileSchema.parse({ ...profile, firstName: profile.firstName || parts[0] || "", lastName: profile.lastName || parts.slice(1).join(" "), email: profile.email || facts.email, phone: profile.phone || facts.phone,
-      currentTitle: profile.currentTitle || facts.employment[0]?.title || facts.headline, skills: unique([...profile.skills, ...facts.skills]), summary: profile.summary || facts.summary });
+      linkedinUrl: profile.linkedinUrl || facts.linkedinUrl, githubUrl: profile.githubUrl || facts.githubUrl, portfolioUrl: profile.portfolioUrl || facts.portfolioUrl, city: profile.city || facts.city, country: profile.country || facts.country,
+      currentTitle: profile.currentTitle || facts.employment.find(e => /^(present|current|ongoing)$/i.test(e.endDate))?.title || facts.headline, skills: unique([...profile.skills, ...facts.skills]), summary: profile.summary || facts.summary });
     db.prepare("INSERT INTO profile(id,data_json,updated_at) VALUES(1,?,CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,updated_at=CURRENT_TIMESTAMP").run(JSON.stringify(merged));
     writeSetting("profileCvId", row.id);
     return { ok: true, profile: merged };
