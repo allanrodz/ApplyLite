@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApplicationPackage, ApplicationTrackerOverview, BrowserSessionResult, JobInput, JobRequirements, ScoreBreakdown } from "@apply-lite/shared";
 import { API_BASE, api } from "../lib/api";
+import { navigate } from "../lib/navigation";
 
 type Job = JobInput & {
   id: number;
@@ -116,11 +117,16 @@ export function DashboardPage() {
   }, [selected?.id]);
 
   const trackerByJobId = useMemo(() => new Map((trackerOverview?.items ?? []).map((item) => [item.jobId, item])), [trackerOverview]);
-  const organizedJobs = useMemo(() => jobs.map((job) => {
+  const workspaceJobs = useMemo(() => jobs.filter((job) => {
+    const hasApplication = applications.some((item) => item.jobId === job.id);
+    return job.origin !== "discovery" || job.status === "FOCUSED" || job.status === "NOT_PURSUING" || hasApplication;
+  }), [jobs, applications]);
+
+  const organizedJobs = useMemo(() => workspaceJobs.map((job) => {
     const application = applications.find((item) => item.jobId === job.id);
     const trackerItem = trackerByJobId.get(job.id);
     return { job, application, trackerItem, bucket: dashboardBucket(job, application, trackerItem) };
-  }), [jobs, applications, trackerByJobId]);
+  }), [workspaceJobs, applications, trackerByJobId]);
 
   const selectedMeta = selected ? organizedJobs.find((item) => item.job.id === selected.id) : undefined;
   const selectedApplication = selectedMeta?.application;
@@ -147,7 +153,7 @@ export function DashboardPage() {
   const visibleJobs = useMemo(() => activeTab === "ALL" ? organizedJobs : organizedJobs.filter((item) => item.bucket === activeTab), [organizedJobs, activeTab]);
 
   const emptyTabMessage = activeTab === "OPPORTUNITIES"
-    ? "No active opportunities. New discoveries and restored jobs will appear here."
+    ? "No focused opportunities yet. Move promising jobs from Discover, or import a specific employer posting."
     : activeTab === "SUBMITTED"
       ? "No submitted applications yet."
       : activeTab === "CLOSED"
@@ -209,7 +215,7 @@ export function DashboardPage() {
     }
   }
 
-  async function setWorkspaceStatus(jobId: number, status: "SCORED" | "NOT_PURSUING") {
+  async function setWorkspaceStatus(jobId: number, status: "SCORED" | "FOCUSED" | "NOT_PURSUING") {
     await api(`/jobs/${jobId}/workspace-status`, {
       method: "PATCH",
       body: JSON.stringify({ status })
@@ -256,7 +262,7 @@ export function DashboardPage() {
           body: JSON.stringify({ outcome: restoredOutcome, note: "Restored from the Closed dashboard tab." })
         });
       }
-      await setWorkspaceStatus(job.id, "SCORED");
+      await setWorkspaceStatus(job.id, job.origin === "discovery" ? "FOCUSED" : "SCORED");
       await refresh();
       setNotice(application?.state === "SUBMITTED" || trackerItem?.submittedAt
         ? "Restored. This job is back under Submitted."
@@ -405,7 +411,7 @@ export function DashboardPage() {
         <div>
           <span className="eyebrow">LOCAL WORKSPACE</span>
           <h1>Your application pipeline</h1>
-          <p>Paste an employer job URL. ApplyLite reads the posting locally, separates required from preferred criteria, and scores it against your factual CV memory.</p>
+          <p>Your focused application workspace. Jobs only appear here after you move them from Discover, import them directly, or begin an application.</p>
         </div>
         <div className="page-header-actions">
           <label className="learning-toggle">
@@ -416,6 +422,19 @@ export function DashboardPage() {
         </div>
       </header>
 
+      <section className="panel">
+        <div className="panel-title">
+          <div><span className="eyebrow">HOW THE PIPELINE WORKS</span><h2>Discover broadly, act selectively</h2></div>
+          <button onClick={() => navigate("/discover")}>Browse discovery</button>
+        </div>
+        <div className="stats-grid">
+          <article><span>1 · Discover</span><strong>Browse broadly</strong><small>Discovery can hold many low- and high-score jobs without crowding this workspace.</small></article>
+          <article><span>2 · Focus</span><strong>Move promising jobs here</strong><small>Use “Move to Dashboard” only for roles you may actually pursue.</small></article>
+          <article><span>3 · Prepare</span><strong>Generate your package</strong><small>Create the tailored CV and cover letter, then review the evidence audit.</small></article>
+          <article><span>4 · Apply</span><strong>Use assisted filling</strong><small>Open the employer form, let ApplyLite help fill it, and personally review and submit.</small></article>
+        </div>
+      </section>
+
       {error && <div className="alert">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
 
@@ -423,7 +442,7 @@ export function DashboardPage() {
         <article><span>Opportunities</span><strong>{stats.opportunities}</strong></article>
         <article><span>Submitted</span><strong>{stats.submitted}</strong></article>
         <article><span>Closed</span><strong>{stats.closed}</strong></article>
-        <article><span>All jobs</span><strong>{stats.jobs}</strong></article>
+        <article><span>Focused jobs</span><strong>{stats.jobs}</strong></article>
       </section>
 
       {showImport && (

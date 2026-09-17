@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.0.** This workflow changes how discovery stores results and introduces background tasks. Use the feature branch for testing until its pull request is approved and merged. The normal installer below follows `main`, not this candidate branch.
+**Release candidate: 0.16.1.** Discovery is now the broad inbox and Dashboard is the focused application workspace. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
@@ -36,7 +36,9 @@ The updater stages and checks code before replacement, preserves standard and le
 4. Choose **Save reviewed facts**, then **Merge reviewed facts into Profile**. The interface guides you to each step. Existing reviewed CV snapshots and application history remain available.
 5. In **Profile**, accept any suitable role suggestions or enter your own targets. Suggestions are not applied until you use them and save. Confirm locations and other preferences; these are not guessed from a past job.
 6. Open **Discover**. The default is **zero AI analyses**: fetch, deduplicate, quick-score and save jobs. Choose a bounded number of deep analyses when useful.
-7. Browse all saved discoveries or this run. Filter by score, title alignment, seniority, location, remote arrangement or analysis status without searching again. Inspect the explanations and original posting before applying.
+7. Browse all saved discoveries or this run. Filter by score, title alignment, seniority, location, remote arrangement or analysis status without searching again. Discovery is intentionally broad and may contain many low-score possibilities.
+8. For a role you may actually pursue, choose **Move to Dashboard**. Discovery keeps the broad market separate from your focused application workspace.
+9. In **Dashboard**, generate/review the tailored CV and cover letter, then open the employer form for assisted filling. ApplyLite never clicks the employer's final Submit control.
 
 The application remains one person's local workspace. Each friend should use their own installation and data; it is not a hosted multi-user service.
 

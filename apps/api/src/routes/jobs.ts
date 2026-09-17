@@ -17,7 +17,7 @@ import { detectAts } from "../automation/detect.js";
 import { rememberDiscoverySourceFromUrl } from "../services/discovery.js";
 
 const UrlImportSchema = z.object({ sourceUrl: z.string().min(8) });
-const JobWorkspaceStatusSchema = z.object({ status: z.enum(["SCORED", "NOT_PURSUING"]) });
+const JobWorkspaceStatusSchema = z.object({ status: z.enum(["SCORED", "FOCUSED", "NOT_PURSUING"]) });
 
 function loadProfile() {
   const row = db.prepare("SELECT data_json FROM profile WHERE id = 1").get() as { data_json: string } | undefined;

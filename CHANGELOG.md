@@ -1,3 +1,11 @@
+# 0.16.1 - Discovery inbox and focused application workspace
+
+- Keep broad, potentially low-score discovery results on Discover instead of flooding Dashboard.
+- Add an explicit Move to Dashboard action for jobs the user may actually pursue.
+- Keep direct/manual imports and jobs with existing applications visible in Dashboard.
+- Add Discover → Dashboard → package → assisted-apply guidance in both screens.
+- Preserve existing CV/cover-letter generation, application preparation and manual final-submit safety.
+
 # 0.16.0 - CV-to-discovery workflow candidate
 
 - URL-backed navigation, readiness guidance, missing-field focus and explicit role suggestions.
