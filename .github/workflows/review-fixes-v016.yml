@@ -1,0 +1,41 @@
+name: Apply reviewed discovery fixes
+on:
+  push:
+    branches: [feat/cv-discovery-workflow-v016]
+    paths: [.github/workflows/review-fixes-v016.yml]
+permissions:
+  contents: read
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/cv-discovery-workflow-v016
+      - name: Verify unchanged feature head
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply checksummed source and test patch
+        shell: python
+        run: |
+          import hashlib, lzma, pathlib, subprocess
+          raw = pathlib.Path('.maintenance/v016-review-fixes.xz').read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == 'c20f17359bb1629ec15e00b8c8c441c57812036c08285000b3b6267f25138785'
+          patch = lzma.decompress(raw)
+          subprocess.run(['git','apply','--check','--index','-'], input=patch, check=True)
+          subprocess.run(['git','apply','--index','--whitespace=nowarn','-'], input=patch, check=True)
+          changed = set(subprocess.check_output(['git','diff','--cached','--name-only'], text=True).splitlines())
+          assert changed == {'apps/api/src/services/discovery.ts','apps/api/scripts/discoveryWorkflowRegression.ts','apps/api/scripts/workflowBrowser.ts','apps/web/src/pages/DiscoverPage.tsx'}
+      - name: Commit reviewed fixes to feature branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Preserve detailed job evidence, honor scoring choice and classify cancellation correctly'
+          git push origin HEAD:feat/cv-discovery-workflow-v016
