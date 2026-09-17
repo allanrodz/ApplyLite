@@ -1,317 +1,95 @@
-import { useEffect, useMemo, useState } from "react";
-import type { DiscoverySource, Profile, ScoreBreakdown } from "@apply-lite/shared";
-import { ProfileSchema } from "@apply-lite/shared";
+import { useEffect, useState } from "react";
+import { ProfileSchema, type DiscoverySource, type Profile, type ScoreBreakdown } from "@apply-lite/shared";
 import { api } from "../lib/api";
+import { navigate, useLocation } from "../lib/navigation";
+import { TaskProgress, taskActive, type Task } from "../components/TaskProgress";
 
-type ImportedMatch = {
-  id: number;
-  title: string;
-  company: string;
-  location: string;
-  sourceUrl: string;
-  ats: string;
-  score: number;
-  preScore: number;
-  scoreBreakdown: ScoreBreakdown;
-};
+type ResultJob = { id:number;title:string;company:string;location:string;sourceUrl:string;description:string;score:number;scoreKind:string;analysisStatus:string;stale:boolean;scoreBreakdown:ScoreBreakdown;requirements:{workplaceType:string} };
+type Results = {items:ResultJob[];counts:{all:number;strong:number;possible:number;stretch:number;notDeep:number};total:number;offset:number;limit:number;hasMore:boolean};
+const csv=(value:string)=>value.split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
+const blank:Results={items:[],counts:{all:0,strong:0,possible:0,stretch:0,notDeep:0},total:0,offset:0,limit:30,hasMore:false};
+export function DiscoverPage(){
+  const location=useLocation();
+  const params=new URLSearchParams(window.location.search);
+  const [profile,setProfile]=useState<Profile>(ProfileSchema.parse({}));
+  const [sources,setSources]=useState<DiscoverySource[]>([]);
+  const [titles,setTitles]=useState("");
+  const [places,setPlaces]=useState("");
+  const [analyses,setAnalyses]=useState(0);
+  const [broadIT,setBroadIT]=useState(false);
+  const [task,setTask]=useState<Task|null>(null);
+  const [deepTask,setDeepTask]=useState<Task|null>(null);
+  const [results,setResults]=useState<Results>(blank);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [loaded,setLoaded]=useState(false);
+  const [sourceUrl,setSourceUrl]=useState("");
+  const [sourceName,setSourceName]=useState("");
+  const [refreshKey,setRefreshKey]=useState(0);
+  const refresh=()=>setRefreshKey(n=>n+1);
 
-type DiscoveryResult = {
-  runId: number;
-  sourcesScanned: number;
-  jobsSeen: number;
-  candidatesAfterPrefilter: number;
-  jobsAnalyzed: number;
-  jobsImported: number;
-  cacheHits: number;
-  aiRequests: number;
-  sourceFetchMs: number;
-  analysisMs: number;
-  durationMs: number;
-  analysisConcurrency: number;
-  useOutcomeLearning: boolean;
-  entryLevelOnly: boolean;
-  broadEntryLevelIT: boolean;
-  includeRemoteUS: boolean;
-  searchQueries: string[];
-  targetTitles: string[];
-  locations: string[];
-  imported: ImportedMatch[];
-  errors: string[];
-};
+  useEffect(()=>{
+    let alive=true;
+    void Promise.all([api<Profile>("/profile"),api<DiscoverySource[]>("/discovery/sources"),api<any>("/discovery/settings")]).then(([p,s,settings])=>{
+      if(!alive)return;setProfile(p);setSources(s);
+      setTitles((p.targetTitles.length?p.targetTitles:[p.currentTitle].filter(Boolean)).join(", "));
+      setPlaces(p.preferredLocations.join(", "));setAnalyses(settings.maxDeepAnalysis??0);setBroadIT(settings.broadEntryLevelIT??false);
+    }).catch(e=>{if(alive)setError(e.message);});
+    return()=>{alive=false;};
+  },[]);
 
-type ExperienceSummary = {
-  totalYears: number;
-  technicalYears: number;
-  relevantYears: number;
-  parseableEmploymentCount: number;
-  scoringDefaultYears: number;
-  scoringSource: string;
-  warnings: string[];
-};
+  useEffect(()=>{
+    let alive=true,timer:number|undefined;const controller=new AbortController();
+    const poll=async()=>{
+      try{
+        const query=new URLSearchParams(window.location.search),id=query.get("task");
+        const current=await api<Task|null>(id?`/discovery/runs/${encodeURIComponent(id)}`:"/discovery/runs/latest",{signal:controller.signal});
+        if(!alive)return;setTask(current);
+        const runId=current?.result?.runId??current?.counters.runId;
+        const filters=new URLSearchParams(query);filters.delete("task");
+        filters.delete("scope");
+        if(runId && query.get("scope")==="run")filters.set("runId",String(runId));
+        const result=await api<Results>(`/discovery/results?${filters}`,{signal:controller.signal});
+        if(!alive)return;setResults(result);setLoaded(true);
+        let pendingDeep=false;
+        if(deepTask?.id){const t=await api<Task>(`/tasks/${deepTask.id}`,{signal:controller.signal});if(!alive)return;setDeepTask(t);pendingDeep=taskActive(t);}
+        if((current&&taskActive(current))||pendingDeep)timer=window.setTimeout(poll,2000);
+      }catch(e){if(alive){setError(e instanceof Error?e.message:"Could not load saved discovery status.");timer=window.setTimeout(poll,5000);}}
+    };
+    void poll();return()=>{alive=false;controller.abort();if(timer)window.clearTimeout(timer);};
+  },[location,refreshKey,deepTask?.id]);
 
-function csv(values: string[]) {
-  return values.join(", ");
-}
-
-function parseCsv(value: string) {
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
-}
-
-export function DiscoverPage() {
-  const [profile, setProfile] = useState<Profile>(ProfileSchema.parse({}));
-  const [sources, setSources] = useState<DiscoverySource[]>([]);
-  const [experience, setExperience] = useState<ExperienceSummary | null>(null);
-  const [targetTitles, setTargetTitles] = useState("");
-  const [locations, setLocations] = useState("");
-  const [minFinalScore, setMinFinalScore] = useState(60);
-  const [maxDeepAnalysis, setMaxDeepAnalysis] = useState(12);
-  const [analysisConcurrency, setAnalysisConcurrency] = useState(2);
-  const [useOutcomeLearning, setUseOutcomeLearning] = useState(true);
-  const [entryLevelOnly, setEntryLevelOnly] = useState(false);
-  const [broadEntryLevelIT, setBroadEntryLevelIT] = useState(false);
-  const [includeRemoteUS, setIncludeRemoteUS] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [sourceName, setSourceName] = useState("");
-  const [result, setResult] = useState<DiscoveryResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  async function refreshSources() {
-    setSources(await api<DiscoverySource[]>("/discovery/sources"));
+  function filter(key:string,value:string){const q=new URLSearchParams(window.location.search);if(value)q.set(key,value);else q.delete(key);if(key!=="offset")q.delete("offset");navigate(`/discover${q.size?`?${q}`:""}`,true);}
+  async function run(){
+    setBusy(true);setError("");
+    try{
+      const t=await api<Task>("/discovery/runs",{method:"POST",body:JSON.stringify({targetTitles:csv(titles),locations:csv(places),maxDeepAnalysis:analyses,analysisConcurrency:1,minPreScore:0,minFinalScore:0,broadEntryLevelIT:broadIT,useOutcomeLearning:true,entryLevelOnly:false,includeRemoteUS:true})});
+      setTask(t);const q=new URLSearchParams(window.location.search);q.set("task",t.id);q.delete("offset");navigate(`/discover?${q}`,true);setNotice("Discovery queued. You can leave this page; keep ApplyLite running.");refresh();
+    }catch(e){setError(e instanceof Error?e.message:"Could not start discovery.");}finally{setBusy(false);}
   }
-
-  useEffect(() => {
-    Promise.all([
-      api<Profile>("/profile"),
-      api<DiscoverySource[]>("/discovery/sources"),
-      api<ExperienceSummary>("/experience/summary")
-    ]).then(([savedProfile, savedSources, summary]) => {
-      setProfile(savedProfile);
-      setSources(savedSources);
-      setExperience(summary);
-      setTargetTitles(csv(savedProfile.targetTitles.length ? savedProfile.targetTitles : [savedProfile.currentTitle].filter(Boolean)));
-      setLocations(csv([...savedProfile.preferredLocations, savedProfile.city, savedProfile.country].filter(Boolean)));
-    }).catch((e) => setError(e instanceof Error ? e.message : "Could not load discovery settings"));
-  }, []);
-
-  const enabledCount = useMemo(() => sources.filter((source) => source.enabled).length, [sources]);
-
-  async function addSource(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-    try {
-      await api("/discovery/sources", {
-        method: "POST",
-        body: JSON.stringify({ url: sourceUrl.trim(), name: sourceName.trim() })
-      });
-      setSourceUrl("");
-      setSourceName("");
-      setMessage("Discovery source added. ApplyLite will scan its public job board on the next run.");
-      await refreshSources();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add source");
-    }
-  }
-
-  async function toggleSource(source: DiscoverySource) {
-    setError("");
-    try {
-      await api(`/discovery/sources/${source.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled: !source.enabled })
-      });
-      await refreshSources();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not update source");
-    }
-  }
-
-  async function runDiscovery() {
-    setLoading(true);
-    setError("");
-    setMessage("Scanning Irish-market, global-remote, and employer-board sources with diversified entry-level IT searches. Uncached Qwen analysis can take several minutes; keep this page open...");
-    setResult(null);
-    try {
-      const output = await api<DiscoveryResult>("/discovery/run", {
-        method: "POST",
-        // Irish-market discovery can legitimately exceed the generic 5-minute API timeout
-        // when public sources are slow and several uncached Qwen analyses are required.
-        signal: AbortSignal.timeout(900_000),
-        body: JSON.stringify({
-          targetTitles: parseCsv(targetTitles),
-          locations: parseCsv(locations),
-          minPreScore: 25,
-          minFinalScore,
-          maxDeepAnalysis,
-          analysisConcurrency,
-          useOutcomeLearning,
-          entryLevelOnly,
-          broadEntryLevelIT,
-          includeRemoteUS
-        })
-      });
-      setResult(output);
-      const seconds = Math.max(0.1, output.durationMs / 1000).toFixed(1);
-      setMessage(`Discovery completed in ${seconds}s: ${output.searchQueries.length} diversified search terms, ${output.jobsSeen} jobs seen, ${output.jobsAnalyzed} evaluated, ${output.cacheHits} cache hits, ${output.aiRequests} Qwen requests, ${output.jobsImported} new matches saved.`);
-      await refreshSources();
-    } catch (e) {
-      setMessage("");
-      setError(e instanceof Error ? e.message : "Discovery failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <>
-      <header className="page-header">
-        <div>
-          <span className="eyebrow">M5.2 BROAD ENTRY-LEVEL DISCOVERY</span>
-          <h1>Find jobs for me</h1>
-          <p>Scan direct employer ATS boards, Irish-market searches, and global remote feeds using diversified entry-level IT queries, then use Qwen only on the strongest candidates.</p>
-        </div>
-        <button className="primary" onClick={runDiscovery} disabled={loading || enabledCount === 0}>
-          {loading ? "Discovering..." : "Find jobs now"}
-        </button>
-      </header>
-
-      {error && <div className="alert">{error}</div>}
-      {message && <div className="notice">{message}</div>}
-
-      <section className="stats-grid discovery-stats">
-        <article><span>Enabled sources</span><strong>{enabledCount}</strong></article>
-        <article><span>CV technical experience</span><strong>{experience ? `${experience.technicalYears}y` : "—"}</strong></article>
-        <article><span>Target titles</span><strong>{parseCsv(targetTitles).length}</strong></article>
-        <article><span>Search mode</span><strong>{entryLevelOnly ? (broadEntryLevelIT ? "Entry-level IT" : "Entry level") : "Broad"}</strong></article>
-        <article><span>Minimum final fit</span><strong>{minFinalScore}%</strong></article>
-      </section>
-
-      <div className="discovery-layout">
-        <section className="panel">
-          <div className="panel-title">
-            <div><span className="eyebrow">SEARCH PROFILE</span><h2>What should ApplyLite look for?</h2></div>
-          </div>
-          <div className="form-grid">
-            <label className="full">Target titles
-              <input value={targetTitles} onChange={(e) => setTargetTitles(e.target.value)} placeholder="Software Developer, Junior Software Engineer, IT Project Manager" />
-            </label>
-            <label className="full">Locations
-              <input value={locations} onChange={(e) => setLocations(e.target.value)} placeholder="Dublin, Ireland, Remote" />
-            </label>
-            <label>Minimum final fit
-              <input type="number" min="0" max="100" value={minFinalScore} onChange={(e) => setMinFinalScore(Number(e.target.value))} />
-            </label>
-            <label>Deep analyses per run
-              <input type="number" min="1" max="20" value={maxDeepAnalysis} onChange={(e) => setMaxDeepAnalysis(Number(e.target.value))} />
-            </label>
-            <label>AI concurrency
-              <input type="number" min="1" max="4" value={analysisConcurrency} onChange={(e) => setAnalysisConcurrency(Number(e.target.value))} />
-            </label>
-            <label className="learning-toggle full">
-              <input type="checkbox" checked={useOutcomeLearning} onChange={(e) => setUseOutcomeLearning(e.target.checked)} />
-              <span>Use outcome learning when enough real application history exists</span>
-            </label>
-            <label className="learning-toggle full">
-              <input type="checkbox" checked={entryLevelOnly} onChange={(e) => setEntryLevelOnly(e.target.checked)} />
-              <span>Entry-level focus: reject senior/lead/manager/architect roles and postings asking for 4+ years</span>
-            </label>
-            <label className="learning-toggle full">
-              <input type="checkbox" checked={broadEntryLevelIT} onChange={(e) => setBroadEntryLevelIT(e.target.checked)} />
-              <span>Broaden beyond my exact titles across entry-level IT: software, support, QA, data, cloud, security, project and AI</span>
-            </label>
-            <label className="learning-toggle full">
-              <input type="checkbox" checked={includeRemoteUS} onChange={(e) => setIncludeRemoteUS(e.target.checked)} />
-              <span>Include US-scoped remote roles when they are otherwise entry-level compatible</span>
-            </label>
-          </div>
-          <p className="muted discovery-note">ApplyLite no longer burns its public-board search budget on the first few near-duplicate titles. It rotates across software, support, QA, IT, project, AI, data, cloud, and security families, then ranks everything locally before sending at most {maxDeepAnalysis} candidates to Qwen. US remote matches receive a small location penalty so Ireland/Europe-compatible roles still rank first.</p>
-        </section>
-
-        <section className="panel">
-          <div className="panel-title">
-            <div><span className="eyebrow">EXPERIENCE ENGINE</span><h2>CV-derived experience</h2></div>
-          </div>
-          {experience ? (
-            <div className="experience-summary">
-              <div><span>All employment</span><strong>{experience.totalYears} years</strong></div>
-              <div><span>Technical employment</span><strong>{experience.technicalYears} years</strong></div>
-              <div><span>Date ranges parsed</span><strong>{experience.parseableEmploymentCount}</strong></div>
-              <small>Job scoring now derives relevant experience from dated CV evidence instead of trusting a default profile value of zero.</small>
-            </div>
-          ) : <p className="muted">Upload a CV to calculate experience.</p>}
-        </section>
-      </div>
-
-      <section className="panel">
-        <div className="panel-title">
-          <div><span className="eyebrow">DISCOVERY SOURCES</span><h2>Irish market + employer boards + global remote</h2></div>
-          <span className="muted">JobsIreland · IrishJobs · Remote OK · Lever · Ashby · Greenhouse</span>
-        </div>
-
-        <div className="source-list">
-          {sources.map((source) => (
-            <article key={source.id} className={source.enabled ? "source-row" : "source-row disabled"}>
-              <div>
-                <strong>{source.name}</strong>
-                <span>{source.ats} · {source.boardKey}</span>
-                {source.lastError && <small className="source-error">Last scan: {source.lastError}</small>}
-                {!source.lastError && source.lastScanAt && <small>Last scanned {source.lastScanAt}</small>}
-              </div>
-              <a href={source.boardUrl} target="_blank" rel="noreferrer">Open board ↗</a>
-              <button onClick={() => toggleSource(source)}>{source.enabled ? "Disable" : "Enable"}</button>
-            </article>
-          ))}
-        </div>
-
-        <form className="add-source" onSubmit={addSource}>
-          <div>
-            <label>Job or board URL
-              <input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://jobs.lever.co/company/..." required />
-            </label>
-            <label>Company name (optional)
-              <input value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder="Company name" />
-            </label>
-          </div>
-          <button className="primary">Add source</button>
-        </form>
-        <p className="muted discovery-note">ApplyLite combines direct employer ATS boards with diversified JobsIreland/IrishJobs searches and the Remote OK public feed. Generic worldwide/Europe remote jobs remain eligible, and US-scoped remote jobs can be included with the search toggle. Every supported URL you manually import is still learned as a future discovery source too.</p>
-      </section>
-
-      {result && (
-        <section className="panel">
-          <div className="panel-title">
-            <div><span className="eyebrow">LATEST RUN</span><h2>{result.jobsImported} new matches saved</h2></div>
-            <span className="muted">{result.searchQueries.length} search terms · {result.jobsSeen} seen · {result.candidatesAfterPrefilter} passed cheap filter · {result.jobsAnalyzed} evaluated · {result.cacheHits} cached · {result.aiRequests} AI calls · {(result.durationMs / 1000).toFixed(1)}s</span>
-          </div>
-
-          <div className="discovered-matches">
-            {result.imported.map((job) => (
-              <article key={job.id}>
-                <div className={`score ${job.score >= 85 ? "strong" : job.score >= 70 ? "good" : "weak"}`}>{job.score}</div>
-                <div>
-                  <strong>{job.title}</strong>
-                  <span>{job.company} · {job.location || "Location not specified"} · {job.ats}</span>
-                  <small>{job.scoreBreakdown.matchedRequiredSkills?.slice(0, 5).join(" · ") || "Open Dashboard for full analysis"}</small>
-                  {job.scoreBreakdown.baseTotal !== undefined && job.scoreBreakdown.outcomeLearningActive && (job.scoreBreakdown.outcomeAdjustment ?? 0) !== 0 && (
-                    <small className="outcome-score-note">Base {job.scoreBreakdown.baseTotal}% · learned {(job.scoreBreakdown.outcomeAdjustment ?? 0) > 0 ? "+" : ""}{job.scoreBreakdown.outcomeAdjustment} → {job.score}%</small>
-                  )}
-                </div>
-                <a href={job.sourceUrl} target="_blank" rel="noreferrer">Posting ↗</a>
-              </article>
-            ))}
-            {!result.imported.length && <div className="empty"><strong>No new jobs cleared the final threshold</strong><span>Try another source, broaden target titles/locations, or lower the final fit threshold slightly.</span></div>}
-          </div>
-
-          {result.errors.length > 0 && (
-            <details className="discovery-errors">
-              <summary>{result.errors.length} source/job warnings</summary>
-              <ul>{result.errors.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
-            </details>
-          )}
-        </section>
-      )}
-    </>
-  );
+  async function deepAnalyze(id:number){try{setDeepTask(await api<Task>(`/discovery/jobs/${id}/analyze`,{method:"POST",body:"{}"}));refresh();}catch(e){setError(e instanceof Error?e.message:"Could not queue deep analysis.");}}
+  async function addSource(event:React.FormEvent){event.preventDefault();try{await api("/discovery/sources",{method:"POST",body:JSON.stringify({url:sourceUrl,name:sourceName})});setSourceUrl("");setSourceName("");setSources(await api<DiscoverySource[]>("/discovery/sources"));}catch(e){setError(e instanceof Error?e.message:"Could not add source.");}}
+  async function toggleSource(source:DiscoverySource){try{await api(`/discovery/sources/${source.id}`,{method:"PATCH",body:JSON.stringify({enabled:!source.enabled})});setSources(await api<DiscoverySource[]>("/discovery/sources"));}catch(e){setError(e instanceof Error?e.message:"Could not update source.");}}
+  const running=!!task&&taskActive(task);
+  const checks:[string,string][]=[["strictTitle","Strict target-title match"],["entryLevelOnly","Entry-level only"],["hideSenior","Hide senior roles"],["strictLocation","Location-compatible only"],["remoteOnly","Remote only"]];
+  return <>
+    <header className="page-header"><div><span className="eyebrow">EXPLORE, THEN FILTER</span><h1>Discover opportunities</h1><p>Collect broadly, compare against your CV and choose your own score filters. Quick results do not need AI.</p></div><button className="primary" onClick={run} disabled={busy||running||!sources.some(s=>s.enabled)||(!titles.trim()&&!broadIT)}>{running?"Discovery running":"Find jobs now"}</button></header>
+    {error&&<div role="alert" className="alert">{error}</div>}{notice&&<p role="status" className="notice">{notice}</p>}
+    <section className="panel"><h2>Your search</h2><div className="form-grid"><label>Target roles or career terms<input value={titles} onChange={e=>setTitles(e.target.value)} placeholder="Your chosen roles, separated by commas"/></label><label>Search locations<input value={places} onChange={e=>setPlaces(e.target.value)} placeholder="Ireland, Remote, or your preferred places"/></label><label>Optional deep analyses per run<input type="number" min="0" max="20" value={analyses} onChange={e=>setAnalyses(Math.max(0,Math.min(20,Number(e.target.value)||0)))}/></label><label className="choice-row"><input type="checkbox" checked={broadIT} onChange={e=>setBroadIT(e.target.checked)}/><span>Also explore entry-level IT role families</span></label></div><p className="muted">Zero deep analyses gives a fully non-AI discovery run. Public searches use your terms, while employer feeds may include broader options. Collection limits and available source coverage still apply.</p></section>
+    {task&&<TaskProgress task={task} onChange={refresh}/>} {deepTask&&<TaskProgress task={deepTask} onChange={next=>{if(next)setDeepTask(next);refresh();}}/>}
+    <section className="panel" id="discovery-results"><div className="panel-title"><div><span className="eyebrow">SAVED OPPORTUNITIES</span><h2>{results.counts.all} jobs collected</h2></div><button onClick={refresh}>Refresh saved results</button></div>
+      <div className="pipeline-tabs">{[["","All",results.counts.all],["strong","Strong",results.counts.strong],["possible","Possible",results.counts.possible],["stretch","Stretch",results.counts.stretch]].map(([key,label,n])=><button className={`pipeline-tab ${((params.get("band")||"")===key)?"active":""}`} key={String(key)} onClick={()=>filter("band",String(key))}>{label}<span>{n}</span></button>)}</div>
+      <p>{results.total} currently match your display filters. {results.counts.notDeep} have no completed deep analysis. These counts overlap the fit bands.</p>
+      <div className="discovery-filter-grid"><label>Results scope<select value={params.get("scope")||"all"} onChange={e=>filter("scope",e.target.value)}><option value="all">All saved discoveries</option><option value="run">This discovery run</option></select></label><label>Search saved results<input value={params.get("query")||""} onChange={e=>filter("query",e.target.value)}/></label><label>Minimum score<select value={params.get("minScore")||"0"} onChange={e=>filter("minScore",e.target.value)}><option value="0">Any score</option><option value="40">40+</option><option value="60">60+</option><option value="75">75+</option></select></label><label>Analysis<select value={params.get("analysis")||""} onChange={e=>filter("analysis",e.target.value)}><option value="">Any analysis</option><option value="quick">Not deeply analyzed</option><option value="deep">Deeply analyzed</option></select></label></div>
+      <div className="filter-checks">{checks.map(([key,label])=><label className="choice-row" key={key}><input type="checkbox" checked={params.get(key)==="true"} onChange={e=>filter(key,e.target.checked?"true":"")}/><span>{label}</span></label>)}<label className="choice-row"><input type="checkbox" checked={params.get("includeRemoteUS")!=="false"} onChange={e=>filter("includeRemoteUS",e.target.checked?"true":"false")}/><span>Show US-scoped remote jobs (hiring eligibility unverified)</span></label></div>
+      <button onClick={()=>{const q=new URLSearchParams();if(params.get("task"))q.set("task",params.get("task")!);navigate(`/discover?${q}`,true);}}>Clear display filters</button>
+      <div className="broad-job-list">{results.items.map(job=><article className="broad-job-card" key={job.id}><div className="job-card-heading"><span className={`score ${job.score>=75?"strong":job.score>=50?"good":"weak"}`}>{job.score}</span><div><h3>{job.title}</h3><p>{job.company} - {job.location||"Location not stated"}</p></div><a href={job.sourceUrl} target="_blank" rel="noreferrer">Open posting</a></div><p className="score-kind">{job.scoreKind==="deep"?"AI-analyzed fit; review evidence":job.scoreKind==="quick"?"Quick score - provisional":"Previous analysis"} {job.analysisStatus==="failed"&&"- AI analysis failed; previous result retained"}{job.analysisStatus==="stale"&&" - source changed; previous detailed analysis retained until reanalysis"}{job.stale&&" - profile/CV has changed; rescore recommended"}</p><p><strong>{job.scoreKind==="deep"?"Matched skills":"CV skills mentioned"}:</strong> {job.scoreBreakdown.matchedSkills?.join(", ")||"No explicit matches identified yet"}</p>{job.scoreKind==="deep"&&<p><strong>Missing or unverified:</strong> {job.scoreBreakdown.missingSkills?.join(", ")||"None identified; check the posting"}</p>}<details><summary>Why this score?</summary><p>Skills {job.scoreBreakdown.skills}/40; role {job.scoreBreakdown.title}/20; experience {job.scoreBreakdown.experience}/15; location {job.scoreBreakdown.location}/10; preferences {job.scoreBreakdown.preference}/15.</p>{job.scoreBreakdown.reasons?.map((s,i)=><p key={`r${i}`}>{s}</p>)}{job.scoreBreakdown.concerns?.map((s,i)=><p className="muted" key={`c${i}`}>{s}</p>)}<p>Fit scores are ranking aids, not a hiring probability or proof of eligibility.</p></details><details><summary>Posting text</summary><p className="source-preview">{job.description}</p></details><div className="actions"><button disabled={!!deepTask&&taskActive(deepTask)} onClick={()=>deepAnalyze(job.id)}>Deep analyze this job</button><button onClick={()=>navigate("/")}>Open job workspace</button></div></article>)}</div>
+      {loaded&&!results.items.length&&<div className="empty"><strong>{results.counts.all?"No jobs match these filters":"No collected jobs yet"}</strong><span>{results.counts.all?"Your lower-scoring jobs are still saved. Clear filters to see them.":"Run discovery or check the source warnings. You can import an employer URL from Dashboard."}</span></div>}
+      <div className="actions"><button disabled={results.offset===0} onClick={()=>filter("offset",String(Math.max(0,results.offset-results.limit)))}>Previous page</button><span>{results.total?`${results.offset+1}-${Math.min(results.total,results.offset+results.limit)} of ${results.total}`:"0 results"}</span><button disabled={!results.hasMore} onClick={()=>filter("offset",String(results.offset+results.limit))}>Next page</button></div>
+      {task && task.result?.errors?.length>0&&<details><summary>Source and analysis warnings ({task.result.errors.length})</summary>{task.result.errors.map((e:string,i:number)=><p key={i}>{e}</p>)}</details>}
+    </section>
+    <details className="panel"><summary>Manage discovery sources ({sources.filter(s=>s.enabled).length} enabled)</summary><p>Current starter boards are mostly Ireland/technology-focused. Add public employer boards relevant to your field.</p>{sources.map(source=><article className="source-row" key={source.id}><div><strong>{source.name}</strong><small>{source.lastError||source.ats}</small></div><a href={source.boardUrl} target="_blank" rel="noreferrer">Open board</a><button onClick={()=>toggleSource(source)}>{source.enabled?"Disable":"Enable"}</button></article>)}<form onSubmit={addSource} className="form-grid"><label>Job or board URL<input value={sourceUrl} onChange={e=>setSourceUrl(e.target.value)} required/></label><label>Company name<input value={sourceName} onChange={e=>setSourceName(e.target.value)}/></label><button>Add source</button></form></details>
+    <p className="muted">Profile: {profile.targetTitles.join(", ")||"No confirmed target titles"}. Missing dates are not a reason to hide opportunities. Remote is not proof an employer can hire in your country.</p>
+  </>;
 }

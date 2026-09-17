@@ -1,4 +1,7 @@
-import { useState } from "react";
+import {ActivityCentre} from "./components/TaskProgress";
+import { useEffect } from "react";
+import { useLocation, viewFromPath, navigate, guideTo, type View } from "./lib/navigation";
+import { GettingStarted } from "./components/GettingStarted";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AnswersPage } from "./pages/AnswersPage";
@@ -13,10 +16,11 @@ import { CareerCoachPage } from "./pages/CareerCoachPage";
 import { SystemPage } from "./pages/SystemPage";
 import { GmailPage } from "./pages/GmailPage";
 
-type View = "dashboard" | "daily" | "review" | "applications" | "gmail" | "coach" | "outcomes" | "discover" | "growth" | "cv" | "profile" | "answers" | "system";
-
 export function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const location = useLocation();
+  const view = viewFromPath(window.location.pathname);
+  const setView = (value: View) => navigate(value === "dashboard" ? "/" : `/${value}`);
+  useEffect(() => { if (window.location.hash) guideTo(window.location.hash.slice(1)); }, [location]);
 
   return (
     <div className="shell">
@@ -25,7 +29,7 @@ export function App() {
           <div className="brand-mark">A</div>
           <div>
             <strong>ApplyLite</strong>
-            <span>local job copilot - v0.15.0</span>
+            <span>local job copilot - v0.16.0</span>
           </div>
         </div>
 
@@ -45,13 +49,16 @@ export function App() {
           <button className={view === "system" ? "active" : ""} onClick={() => setView("system")}>System & Recovery</button>
         </nav>
 
+        <ActivityCentre />
         <div className="safety-note">
           <strong>Review mode</strong>
           <span>Review every extracted fact and employer form. You control final submission.</span>
         </div>
       </aside>
 
-      <main className="content">
+      <main className="content" id="main-content">
+        {["dashboard","cv","profile","discover"].includes(view || "") && <GettingStarted />}
+        {!view && <section className="panel"><h1>Page not found</h1><button onClick={() => navigate("/")}>Go to Dashboard</button></section>}
         {view === "dashboard" && <DashboardPage />}
         {view === "daily" && <DailyBriefPage />}
         {view === "review" && <ReviewQueuePage />}

@@ -19,13 +19,14 @@ await api.listen({ port: 4310, host: "127.0.0.1" });
 const build = path.resolve(process.cwd(), "../web/dist");
 if (!fs.existsSync(path.join(build, "index.html"))) throw new Error("Build apps/web before running browser regression from the API workspace.");
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url || "/", "http://localhost"); const file = path.resolve(build, `.${url.pathname === "/" ? "/index.html" : url.pathname}`);
+  const url = new URL(req.url || "/", "http://localhost"); let file = path.resolve(build, `.${url.pathname === "/" ? "/index.html" : url.pathname}`);
+  if (!path.extname(url.pathname) && !fs.existsSync(file)) file = path.join(build, "index.html");
   if (!file.startsWith(build + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
   const types: Record<string,string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
   res.setHeader("Content-Type", types[path.extname(file)] || "application/octet-stream"); res.end(fs.readFileSync(file));
 });
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined });
 const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
 const artifacts = path.resolve(process.cwd(), "../../.test-artifacts"); fs.mkdirSync(artifacts, { recursive: true });
 try {
@@ -43,15 +44,14 @@ try {
   await page.screenshot({ path: path.join(artifacts, "cv-review.png"), fullPage: true });
   await page.getByRole("button", { name: "Save reviewed facts", exact: true }).click();
   await page.getByRole("button", { name: "Merge reviewed facts into Profile", exact: true }).click();
-  await page.getByRole("status").filter({ hasText: "Profile updated" }).waitFor();
-  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByRole("heading", {name:"Candidate profile",exact:true}).waitFor();
   await page.getByLabel("Target titles", { exact: true }).fill("");
   await page.getByLabel("Target titles", { exact: true }).pressSequentially("Accounts Assistant, Bookkeeper", { delay: 5 });
   await page.getByLabel("Preferred locations", { exact: true }).fill("Ireland, Remote");
   await page.getByRole("button", { name: "Save profile", exact: true }).click();
   await page.getByText("Profile saved locally.", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
-  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.reload();
+  await page.getByRole("heading", {name:"Candidate profile",exact:true}).waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll("input")].some(el => el.value === "Accounts Assistant, Bookkeeper"));
   assert.equal(await page.getByLabel("Email", { exact: true }).inputValue(), "person@example.invalid");
   assert.equal(await page.getByLabel("Preferred locations", { exact: true }).inputValue(), "Ireland, Remote");

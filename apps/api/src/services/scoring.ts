@@ -92,6 +92,7 @@ export function scoreJob(profile: Profile, job: JobInput, requirements?: JobRequ
   const cvDerivedAvailable = Boolean(facts && experienceSummary.parseableEmploymentCount > 0);
   const candidateExperienceYears = cvDerivedAvailable ? experienceSummary.relevantYears : profile.yearsExperience;
   const experienceSource: ScoreBreakdown["experienceSource"] = cvDerivedAvailable ? "cv-derived" : profile.yearsExperience > 0 ? "profile" : "unknown";
+  const impreciseDates = experienceSummary.warnings.some(w => w.startsWith("Year-only dates"));
   const requiredYears = requirements?.requiredExperienceYears ?? extractExperienceYears(job.description);
   const skillSpecificExperience = extractSkillSpecificExperienceRequirement(job.description, requirements?.requiredSkills ?? []);
   const explicitSkillYears = skillSpecificExperience ? explicitSubjectYearsInCv(facts, skillSpecificExperience.subject) : 0;
@@ -114,7 +115,7 @@ export function scoreJob(profile: Profile, job: JobInput, requirements?: JobRequ
   if (required.matched.length) reasons.push(`Matched required skills: ${required.matched.slice(0, 6).join(", ")}`);
   if (preferred.matched.length) reasons.push(`Matched preferred skills: ${preferred.matched.slice(0, 5).join(", ")}`);
   if (preferredLocationMatched || remoteLocationCompatible) reasons.push("Location/work arrangement is compatible with your preferences");
-  if (requiredYears !== null && candidateExperienceYears >= requiredYears && !skillSpecificYearsUnverified) reasons.push(`Experience threshold met (${requiredYears}+ years requested; ${candidateExperienceYears} years supported)`);
+  if (requiredYears !== null && candidateExperienceYears >= requiredYears && !skillSpecificYearsUnverified && !impreciseDates) reasons.push(`Experience threshold met (${requiredYears}+ years requested; ${candidateExperienceYears} years supported)`);
   if (titleOverlap >= 0.5) reasons.push("Job title aligns with your chosen target roles");
   if (required.missing.length) concerns.push(`Missing or unverified required skills: ${required.missing.slice(0, 8).join(", ")}`);
   if (skillSpecificYearsUnverified && skillSpecificExperience) concerns.push(`Posting asks for ${skillSpecificExperience.years}+ years specifically in ${skillSpecificExperience.subject}; the CV verifies related experience but does not explicitly date ${skillSpecificExperience.years}+ years of ${skillSpecificExperience.subject} use.`);
@@ -123,7 +124,7 @@ export function scoreJob(profile: Profile, job: JobInput, requirements?: JobRequ
     concerns.push(`Posting requests ${requiredYears}+ years; ${sourceLabel} ${candidateExperienceYears} relevant years`);
   }
   if (!preferredLocationMatched && !remoteLocationCompatible && job.location) concerns.push(`Location may not match your saved preferences: ${job.location}`);
-  for (const warning of requirements?.warnings ?? []) concerns.push(warning);
+  for (const warning of [...experienceSummary.warnings, ...(requirements?.warnings ?? [])]) concerns.push(warning);
   return { total, skills, title, location, experience: Math.round(experience), preference, candidateExperienceYears,
     candidateTechnicalExperienceYears: experienceSummary.technicalYears, experienceSource, experienceEvidence: experienceSummary.relevantEmployment,
     matchedSkills: unique([...required.matched, ...preferred.matched]), missingSkills: unique([...required.missing, ...preferred.missing]),

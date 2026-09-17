@@ -38,7 +38,9 @@ try {
   assert.equal(result.noise.glassdoor, false, "Glassdoor community/job-alert mail must not enter Gmail Intelligence");
   assert.equal(result.directReplyRelevant, true, "direct application replies should remain relevant");
   assert.equal(db.pragma("quick_check", { simple: true }), "ok");
-  assert.equal(Number(db.pragma("user_version", { simple: true })), 10);
+  assert.ok(Number(db.pragma("user_version", { simple: true })) >= 10, "Gmail schema remains installed after additive migrations");
+  assert.ok(db.prepare("SELECT version FROM schema_migrations WHERE version = 10").get(), "Gmail migration history is preserved");
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='gmail_messages'").get(), "Gmail data table is preserved");
   console.log("M10 regression PASS");
   console.log("OAuth safety: gmail.readonly only; no send/modify scope.");
   console.log("Classification: interview, rejection and assessment fixtures passed.");

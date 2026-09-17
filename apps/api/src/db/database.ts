@@ -1,3 +1,4 @@
+import { migrateWorkflow } from "./workflowMigration.js";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -658,5 +659,6 @@ export function initializeDatabase() {
   ensureApplicationTrackerColumns();
   runM9Migration();
   runM10Migration();
+  migrateWorkflow(db, dbPath);
   recoverInterruptedWork();
 }

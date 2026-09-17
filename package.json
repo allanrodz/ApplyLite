@@ -1,8 +1,11 @@
 {
   "name": "apply-lite",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run build -w @apply-lite/shared && concurrently -n api,web -c auto \"npm run dev -w @apply-lite/api\" \"npm run dev -w @apply-lite/web\"",
     "dev:api": "npm run build -w @apply-lite/shared && npm run dev -w @apply-lite/api",
@@ -13,9 +16,15 @@
     "regression:m10": "npm run build -w @apply-lite/shared && npm run regression:m10 -w @apply-lite/api",
     "regression:discovery": "npm run build -w @apply-lite/shared && npm run regression:discovery -w @apply-lite/api",
     "regression:reliability": "npm run build -w @apply-lite/shared && npm run regression:reliability -w @apply-lite/api",
-    "test": "npm run regression:reliability && npm run regression:discovery && npm run regression:edge -w @apply-lite/api",
-    "regression:browser": "npm run build && npm run regression:browser -w @apply-lite/api"
+    "test": "npm run regression:reliability && npm run regression:discovery && npm run regression:edge -w @apply-lite/api && npm run regression:workflow",
+    "regression:browser": "npm run build && npm run regression:browser -w @apply-lite/api",
+    "regression:workflow": "npm run build -w @apply-lite/shared && npm run regression:workflow -w @apply-lite/api"
   },
-  "devDependencies": { "concurrently": "^9.2.1", "typescript": "^5.9.2" },
-  "engines": { "node": ">=22.12.0" }
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
 }

@@ -1,3 +1,4 @@
+import { navigate, guideTo } from "../lib/navigation";
 import { useEffect, useState } from "react";
 import { ProfileSchema, type AutofillMapping, type Profile } from "@apply-lite/shared";
 import { API_BASE, api } from "../lib/api";
@@ -8,9 +9,12 @@ type ExperienceSummary = {
   parseableEmploymentCount: number;
   scoringDefaultYears: number;
   scoringSource: string;
+  warnings?: string[];
 };
 
 export function ProfilePage() {
+  const [suggestions,setSuggestions] = useState<{cvId:number|null;suggestions:{title:string;confidence:number;evidence:string[]}[]}>({cvId:null,suggestions:[]});
+  const [selectedRoles,setSelectedRoles] = useState<string[]>([]);
   const [profile, setProfile] = useState<Profile>(ProfileSchema.parse({}));
   const [experience, setExperience] = useState<ExperienceSummary | null>(null);
   const [message, setMessage] = useState("");
@@ -24,6 +28,8 @@ export function ProfilePage() {
       .catch((e) => setMessage(e.message));
   }, []);
 
+  useEffect(()=>{void api<typeof suggestions>("/profile/role-suggestions").then(setSuggestions).catch(()=>{});},[]);
+
   const parseCsv = (value: string) => value.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean);
 
   async function save(event: React.FormEvent) {
@@ -32,7 +38,7 @@ export function ProfilePage() {
     try {
       const saved = await api<Profile>("/profile", { method: "PUT", body: JSON.stringify({ ...profile, ...Object.fromEntries(Object.entries(listDraft).map(([key, value]) => [key, parseCsv(value)])) }) });
       setProfile(saved);
-      setMessage("Profile saved locally.");
+      setMessage("Profile saved locally."); guideTo("profile-discover");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not save profile");
     } finally {
@@ -51,12 +57,14 @@ export function ProfilePage() {
       </section>
       {experience && (
         <section className="panel experience-profile">
-          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.technicalYears} years technical experience (IT roles)</strong></div>
-          <div><span>All dated employment</span><strong>{experience.totalYears} years</strong></div>
+          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.totalYears} years across dated employment</strong></div>
+          {experience.technicalYears > 0 && <div><span>Technology-related roles</span><strong>{experience.technicalYears} years</strong></div>}
           <div><span>Employment ranges parsed</span><strong>{experience.parseableEmploymentCount}</strong></div>
+          {experience.warnings?.map((warning,i)=><p className="muted" key={i}>{warning}</p>)}
           <p>Job-specific scoring now derives relevant experience from your employment dates. The manual Years experience field remains a fallback only when CV evidence cannot be calculated.</p>
         </section>
       )}
+      {suggestions.suggestions.length > 0 && <section className="panel" id="role-suggestions"><h2>Suggested roles from your reviewed CV</h2><p>Suggestions are preferences, not claims of qualification. Choose only the roles you want.</p>{suggestions.suggestions.map(s=><label className="choice-row" key={s.title}><input type="checkbox" checked={selectedRoles.includes(s.title)} onChange={e=>setSelectedRoles(old=>e.target.checked?[...old,s.title]:old.filter(t=>t!==s.title))}/><span><strong>{s.title}</strong><small>{s.confidence>=0.8?"Direct CV title":"Related skills suggestion"}: {s.evidence.join("; ")}</small></span></label>)}<button disabled={!selectedRoles.length || saving} onClick={()=>{setListDraft(old=>({...old,targetTitles:[...new Set([...parseCsv(old.targetTitles),...selectedRoles])].join(", ")}));setSelectedRoles([]);setMessage("Selected suggestions added to the form. Save profile to confirm your choices.");guideTo("target-roles");}}>Use selected suggestions</button></section>}
       <form className="panel" onSubmit={save}>
         <div className="form-grid">
           <label>First name<input value={profile.firstName} onChange={(e) => setProfile({ ...profile, firstName: e.target.value })} /></label>
@@ -67,9 +75,9 @@ export function ProfilePage() {
           <label>Country<input value={profile.country} onChange={(e) => setProfile({ ...profile, country: e.target.value })} /></label>
           <label>Current title<input value={profile.currentTitle} onChange={(e) => setProfile({ ...profile, currentTitle: e.target.value })} /></label>
           <label>Years experience<input type="number" min="0" value={profile.yearsExperience} onChange={(e) => setProfile({ ...profile, yearsExperience: Number(e.target.value) })} /></label>
-          <label className="full">Target titles<input value={listDraft.targetTitles} onChange={(e) => setListDraft({ ...listDraft, targetTitles: e.target.value })} placeholder="Your desired job titles, separated by commas" /></label>
+          <label className="full">Target titles<input id="target-roles" value={listDraft.targetTitles} onChange={(e) => setListDraft({ ...listDraft, targetTitles: e.target.value })} placeholder="Your desired job titles, separated by commas" /></label>
           <label className="full">Skills<textarea rows={4} value={listDraft.skills} onChange={(e) => setListDraft({ ...listDraft, skills: e.target.value })} placeholder="Skills from your CV, separated by commas" /></label>
-          <label className="full">Preferred locations<input value={listDraft.preferredLocations} onChange={(e) => setListDraft({ ...listDraft, preferredLocations: e.target.value })} placeholder="Dublin, Ireland, Remote" /></label>
+          <label className="full">Preferred locations<input id="preferred-locations" value={listDraft.preferredLocations} onChange={(e) => setListDraft({ ...listDraft, preferredLocations: e.target.value })} placeholder="Dublin, Ireland, Remote" /></label>
           <label>Remote preference<select value={profile.remotePreference} onChange={(e) => setProfile({ ...profile, remotePreference: e.target.value as Profile["remotePreference"] })}><option value="any">Any</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option></select></label>
           <label>Minimum salary<input type="number" min="0" value={profile.minimumSalary ?? ""} onChange={(e) => setProfile({ ...profile, minimumSalary: e.target.value ? Number(e.target.value) : null })} /></label>
           <label className="full">Work authorisation<input value={profile.workAuthorization} onChange={(e) => setProfile({ ...profile, workAuthorization: e.target.value })} /></label>
@@ -82,6 +90,7 @@ export function ProfilePage() {
         </div>
         <div className="actions"><button className="primary" disabled={saving}>{saving ? "Saving..." : "Save profile"}</button></div>
       </form>
+      <section className="panel" id="profile-discover"><h2>Continue to opportunities</h2><p>Target roles guide your search. Other preferences can be adjusted later.</p><button disabled={!listDraft.targetTitles.trim()} onClick={() => navigate("/discover")}>Discover jobs</button></section>
     </>
   );
 }

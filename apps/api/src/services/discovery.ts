@@ -1,3 +1,7 @@
+import { requestSignal,taskCheckpoint,taskProgress,taskSignal } from "./taskContext.js";
+import { containsTerm,canonicalSkill } from "./matching.js";
+import { safeAiError,AiError } from "./aiProvider.js";
+import { reviewedCv,savedProfile } from "./onboarding.js";
 import { targets, planCareerQueries, careerFamilies } from "./matching.js";
 import { createHash } from "node:crypto";
 import type {
@@ -23,7 +27,7 @@ const REMOTE_FEED_MAX_AGE_DAYS = 180;
 
 type DiscoveryAts = "lever" | "ashby" | "greenhouse" | "jobsireland" | "irishjobs" | "remoteok";
 
-type DiscoveryPosting = {
+export type DiscoveryPosting = {
   title: string;
   company: string;
   location: string;
@@ -573,7 +577,7 @@ export function bootstrapDiscoverySources() {
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
     headers: { accept: "application/json", "user-agent": "ApplyLite/0.4 local-job-discovery" },
-    signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS)
+    signal: requestSignal(SOURCE_TIMEOUT_MS)
   });
   if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
   return response.json() as Promise<T>;
@@ -587,7 +591,7 @@ async function fetchText(url: string): Promise<string> {
       "accept-language": "en-IE,en;q=0.9",
       "user-agent": "ApplyLite/0.14.3 local-job-discovery"
     },
-    signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS)
+    signal: requestSignal(SOURCE_TIMEOUT_MS)
   });
   if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
   return response.text();
@@ -742,6 +746,7 @@ function jobsIrelandLeads(html: string) {
 
 async function fetchJobsIreland(source: DiscoverySource, alignmentTitles: string[], searchQueries: string[], locations: string[]): Promise<DiscoveryPosting[]> {
   const queries = searchQueries;
+  let successfulSearches = 0, detailsRead = 0;
   const location = searchLocation(locations);
   const leads = new Map<string, { id: string; title: string; location: string }>();
 
@@ -759,6 +764,7 @@ async function fetchJobsIreland(source: DiscoverySource, alignmentTitles: string
     url.searchParams.set("vacancyId", "-1");
     try {
       const html = await fetchText(url.toString());
+      successfulSearches++;
       for (const lead of jobsIrelandLeads(html)) {
         if (lead.title && !titleAlignmentScore(lead.title, alignmentTitles).aligned) continue;
         leads.set(lead.id, lead);
@@ -768,18 +774,21 @@ async function fetchJobsIreland(source: DiscoverySource, alignmentTitles: string
     }
   });
 
+  if (queries.length && !successfulSearches) throw new Error("All public search requests failed; this is not an empty job market.");
   const results: DiscoveryPosting[] = [];
   const selected = [...leads.values()].slice(0, MAX_PUBLIC_DETAIL_FETCHES);
   await mapWithConcurrency(selected, 6, async (lead) => {
     try {
       const url = `https://jobsireland.ie/en-US/job-Details?id=${encodeURIComponent(lead.id)}`;
       const html = await fetchText(url);
+      detailsRead++;
       const posting = buildPublicBoardPosting(source, url, html, { title: lead.title, location: lead.location });
       if (posting && (!alignmentTitles.length || titleAlignmentScore(posting.title, alignmentTitles).aligned)) results.push(posting);
     } catch {
       // One expired vacancy should not fail the whole national source.
     }
   });
+  if (leads.size > 0 && !detailsRead) throw new Error("Search found links but all job detail requests failed. Try this source later.");
   return results;
 }
 
@@ -791,6 +800,7 @@ function irishJobsLinks(html: string) {
 
 async function fetchIrishJobs(source: DiscoverySource, alignmentTitles: string[], searchQueries: string[], locations: string[]): Promise<DiscoveryPosting[]> {
   const queries = searchQueries;
+  let successfulSearches = 0, detailsRead = 0;
   const location = searchLocation(locations);
   const locationSlug = slugifySearch(location === "Ireland" ? "ireland" : location);
   const links = new Set<string>();
@@ -801,22 +811,26 @@ async function fetchIrishJobs(source: DiscoverySource, alignmentTitles: string[]
     const url = `https://www.irishjobs.ie/jobs/${querySlug}/in-${locationSlug}`;
     try {
       const html = await fetchText(url);
+      successfulSearches++;
       for (const link of irishJobsLinks(html)) links.add(link);
     } catch {
       // IrishJobs can occasionally reject one search path while other target-title paths still work.
     }
   });
 
+  if (queries.length && !successfulSearches) throw new Error("All public search requests failed; this is not an empty job market.");
   const results: DiscoveryPosting[] = [];
   await mapWithConcurrency([...links].slice(0, MAX_PUBLIC_DETAIL_FETCHES), 6, async (url) => {
     try {
       const html = await fetchText(url);
+      detailsRead++;
       const posting = buildPublicBoardPosting(source, url, html);
       if (posting && (!alignmentTitles.length || titleAlignmentScore(posting.title, alignmentTitles).aligned)) results.push(posting);
     } catch {
       // Individual IrishJobs ads can expire between the search page and detail fetch.
     }
   });
+  if (links.size > 0 && !detailsRead) throw new Error("Search found links but all job detail requests failed. Try this source later.");
   return results;
 }
 
@@ -1159,6 +1173,7 @@ function knownJobUrls() {
 function postingContentHash(posting: DiscoveryPosting) {
   return createHash("sha256")
     .update(JSON.stringify({
+      cacheVersion: "workflow-0.16-requirements-1",
       title: posting.title,
       company: posting.company,
       location: posting.location,
@@ -1212,6 +1227,7 @@ async function mapWithConcurrency<T>(items: T[], concurrency: number, worker: (i
   const workerCount = Math.max(1, Math.min(concurrency, items.length || 1));
   await Promise.all(Array.from({ length: workerCount }, async () => {
     while (true) {
+      taskCheckpoint();
       const index = nextIndex++;
       if (index >= items.length) return;
       await worker(items[index], index);
@@ -1219,223 +1235,131 @@ async function mapWithConcurrency<T>(items: T[], concurrency: number, worker: (i
   }));
 }
 
-async function executeDiscovery(input: DiscoveryRunInput) {
-  const startedAt = Date.now();
-  const profile = loadProfile();
-  const facts = loadCandidateFacts();
-  const targetTitles = (input.targetTitles?.length ? input.targetTitles : targets(profile)).filter(Boolean);
-  const locations = (input.locations?.length ? input.locations : [...profile.preferredLocations, profile.city, profile.country]).filter(Boolean);
-  const entryLevelOnly = input.entryLevelOnly ?? false;
-  const broadEntryLevelIT = input.broadEntryLevelIT ?? false;
-  const includeRemoteUS = input.includeRemoteUS ?? false;
-  if (!targetTitles.length && !broadEntryLevelIT) throw new Error("Choose target roles in Profile before discovering jobs.");
-  const alignmentTitles = buildDiscoveryAlignmentTitles(targetTitles, broadEntryLevelIT);
-  const searchQueries = buildDiscoverySearchQueries(targetTitles, MAX_PUBLIC_SEARCH_QUERIES, broadEntryLevelIT);
-  const sources = listDiscoverySources().filter((source) => source.enabled);
-  const outcomeModel = buildOutcomeLearningModel();
 
-  if (!sources.length) throw new Error("No discovery sources are enabled. Add a Lever, Ashby, or Greenhouse board first.");
-
-  const run = db.prepare("INSERT INTO discovery_runs (status) VALUES ('RUNNING')").run();
-  const runId = Number(run.lastInsertRowid);
-  const errors: string[] = [];
-  const allPostings: DiscoveryPosting[] = [];
-
-  const sourceFetchStarted = Date.now();
-  const sourceResults = await Promise.all(sources.map(async (source) => {
-    try {
-      return { source, postings: await fetchSource(source, alignmentTitles, searchQueries, locations, entryLevelOnly), error: null as string | null };
-    } catch (error) {
-      return { source, postings: [] as DiscoveryPosting[], error: error instanceof Error ? error.message : String(error) };
-    }
-  }));
-
-  for (const result of sourceResults) {
-    if (result.error) {
-      errors.push(`${result.source.name}: ${result.error}`);
-      db.prepare("UPDATE discovery_sources SET last_scan_at = CURRENT_TIMESTAMP, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-        .run(result.error, result.source.id);
-    } else {
-      allPostings.push(...result.postings);
-      db.prepare("UPDATE discovery_sources SET last_scan_at = CURRENT_TIMESTAMP, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-        .run(result.source.id);
-    }
-  }
-  const sourceFetchMs = Date.now() - sourceFetchStarted;
-
-  const known = knownJobUrls();
-  const unique = new Map<string, DiscoveryPosting>();
-  for (const posting of allPostings) {
-    const key = canonicalUrl(posting.sourceUrl);
-    if (!unique.has(key) && !known.has(key)) unique.set(key, posting);
-  }
-
-  const ranked = [...unique.values()]
-    .map((posting) => ({
-      posting,
-      preScore: cheapScore(posting, profile, facts, alignmentTitles, locations, { entryLevelOnly, includeRemoteUS })
-    }))
-    .filter((item) => item.preScore >= input.minPreScore)
-    .sort((a, b) => b.preScore - a.preScore);
-
-  const shortlist = selectDiverseShortlist(ranked, input.maxDeepAnalysis);
-  const imported: Array<Record<string, unknown>> = [];
-  let evaluated = 0;
-  let cacheHits = 0;
-  let aiRequests = 0;
-
-  const updateProgress = (analysisMs = 0) => {
-    db.prepare(`
-      UPDATE discovery_runs SET
-        sources_scanned = ?, jobs_seen = ?, jobs_shortlisted = ?, jobs_analyzed = ?, jobs_imported = ?,
-        cache_hits = ?, ai_requests = ?, source_fetch_ms = ?, analysis_ms = ?, errors_json = ?
-      WHERE id = ?
-    `).run(
-      sources.length,
-      allPostings.length,
-      ranked.length,
-      evaluated,
-      imported.length,
-      cacheHits,
-      aiRequests,
-      sourceFetchMs,
-      analysisMs,
-      JSON.stringify(errors),
-      runId
-    );
-  };
-
-  updateProgress();
-  const analysisStarted = Date.now();
-
-  await mapWithConcurrency(shortlist, input.analysisConcurrency, async (item) => {
-    try {
-      let requirements = loadCachedRequirements(item.posting);
-      if (requirements) {
-        cacheHits += 1;
-      } else {
-        aiRequests += 1;
-        requirements = await extractRequirementsFromEvidence(item.posting.evidence);
-        saveCachedRequirements(item.posting, requirements);
+export type DiscoveryDependencies={fetchSource?:typeof fetchSource;analyze?:(evidence:JobPageEvidence)=>Promise<JobRequirements>};
+export function quickRequirements(posting:{title:string;description:string;location:string}):JobRequirements {
+ const text=`${posting.location}\n${posting.description}`;
+ const explicit=text.split(/[\n.!?]/).filter(line=>!/\b(preferred|desirable|nice to have)\b/i.test(line)).join("\n");
+ const years=[...explicit.matchAll(/(\d{1,2})(?:\s*[-\u2013]\s*\d{1,2})?\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:(?:relevant|professional|commercial|work)\s+)?experience/gi)].map(m=>+m[1]);
+ return JobRequirementsSchema.parse({requiredExperienceYears:years.length?Math.max(...years):null,workplaceType:/\bhybrid\b/i.test(text)?"hybrid":/\b(remote|work from home)\b/i.test(text)?"remote":/\b(on[- ]site|office[- ]based)\b/i.test(text)?"onsite":"unknown",seniority:/\b(senior|staff|principal|lead|director|head of)\b/i.exec(posting.title)?.[0]||/\b(junior|graduate|entry[- ]level|trainee|intern)\b/i.exec(posting.title)?.[0]||"",warnings:["Quick analysis only. Required versus preferred skills and qualifications have not been fully identified."]});
+}
+function profileHash(profile:Profile){return createHash("sha256").update(JSON.stringify(profile)).digest("hex");}
+function mentionedSkills(profile:Profile,facts:CandidateFacts|null,text:string){return [...new Set([...profile.skills,...(facts?.skills||[]),...(facts?.projects.flatMap(p=>p.technologies)||[])])].filter(skill=>containsTerm(text,skill)||containsTerm(text,canonicalSkill(skill)));}
+async function executeDiscovery(input:DiscoveryRunInput,dependencies:DiscoveryDependencies={}) {
+ const startedAt=Date.now(),profile=loadProfile(),facts=loadCandidateFacts(),cvId=reviewedCv()?.id||null;
+ const targetTitles=(input.targetTitles?.length?input.targetTitles:targets(profile)).filter(Boolean);
+ const locations=(input.locations?.length?input.locations:[...profile.preferredLocations,profile.city,profile.country]).filter(Boolean);
+ if(!targetTitles.length&&!input.broadEntryLevelIT)throw new Error("Choose a target role or career term before searching.");
+ const searchQueries=buildDiscoverySearchQueries(targetTitles,MAX_PUBLIC_SEARCH_QUERIES,input.broadEntryLevelIT);
+ const sources=listDiscoverySources().filter(s=>s.enabled);if(!sources.length)throw new Error("Enable at least one discovery source.");
+ const runId=Number(db.prepare("INSERT INTO discovery_runs(status) VALUES('RUNNING')").run().lastInsertRowid);
+ const errors:string[]=[],allPostings:DiscoveryPosting[]=[];let sourcesScanned=0,jobsSeen=0,jobsSaved=0,jobsNew=0,jobsAnalyzed=0,aiRequests=0,cacheHits=0,invalidPostings=0;
+ const counters=()=>({runId,sourcesTotal:sources.length,sourcesScanned,jobsSeen,jobsSaved,jobsNew,jobsAnalyzed,aiRequests,cacheHits,invalidPostings});
+ const report=(phase:string,message:string,extra:Record<string,number>={})=>taskProgress(phase,{...counters(),...extra},message);
+ const sourceStart=Date.now();
+ try{
+ report("FETCHING_SOURCES","Scanning public employer and job-board sources.");
+ await mapWithConcurrency(sources,4,async source=>{
+  try{
+   // Title and seniority restrictions are display filters, not adapter ingestion gates.
+   const postings=await(dependencies.fetchSource||fetchSource)(source,[],searchQueries,locations,false);taskCheckpoint();
+   jobsSeen+=postings.length;allPostings.push(...postings.slice(0,MAX_POSTINGS_PER_SOURCE));
+   db.prepare("UPDATE discovery_sources SET last_scan_at=CURRENT_TIMESTAMP,last_error=NULL WHERE id=?").run(source.id);
+  }catch(e){taskCheckpoint();const message=e instanceof Error?e.message:"Source unavailable";errors.push(`${source.name}: ${message}`);db.prepare("UPDATE discovery_sources SET last_scan_at=CURRENT_TIMESTAMP,last_error=? WHERE id=?").run(message,source.id);}
+  finally{sourcesScanned++;report("FETCHING_SOURCES",`Scanned ${sourcesScanned} of ${sources.length} sources.`);}
+ });
+ const sourceFetchMs=Date.now()-sourceStart;
+ if(errors.length===sources.length)throw new AiError("SOURCE_UNAVAILABLE","All enabled job sources failed. Open source warnings, check your connection, or try different sources.",true);
+ taskCheckpoint();report("QUICK_SCORING","Saving valid postings, including low-score opportunities.");
+ const existing=new Map((db.prepare("SELECT id,source_url AS url FROM jobs ORDER BY id").all() as {id:number;url:string}[]).map(j=>[canonicalUrl(j.url),j.id]));
+ const unique=new Map<string,DiscoveryPosting>();
+ for(const posting of allPostings){if(!JobInputSchema.safeParse(posting).success || !/^https?:\/\//i.test(posting.sourceUrl)){invalidPostings++;continue;}const key=canonicalUrl(posting.sourceUrl);if(!unique.has(key))unique.set(key,posting);}
+ const ranked:{posting:DiscoveryPosting;id:number;preScore:number;requirements:JobRequirements;deep:boolean}[]=[];
+ for(const posting of unique.values()){
+  taskCheckpoint();
+  const existingId=existing.get(canonicalUrl(posting.sourceUrl));
+  const previous=existingId?db.prepare("SELECT title,company,location,salary_text AS salaryText,description,analysis_json,score_kind,analysis_status FROM jobs WHERE id=?").get(existingId) as any:null;
+  let requirements=loadCachedRequirements(posting),deep=!!requirements;
+  if(deep)cacheHits++;
+  let retained=false,sourceChanged=false;
+  if(!requirements&&previous&&previous.score_kind!=="quick"){
+    try{
+      const parsed=JobRequirementsSchema.safeParse(JSON.parse(previous.analysis_json));
+      if(parsed.success&&(previous.score_kind==="deep"||parsed.data.requiredSkills.length||parsed.data.preferredSkills.length||parsed.data.qualifications.length||parsed.data.responsibilities.length)){
+        requirements=parsed.data;retained=true;deep=true;
+        sourceChanged=postingContentHash(previous)!==postingContentHash(posting);
       }
-
-      const job = JobInputSchema.parse({
-        sourceUrl: item.posting.sourceUrl,
-        title: item.posting.title,
-        company: item.posting.company,
-        location: item.posting.location,
-        salaryText: item.posting.salaryText,
-        description: item.posting.description
-      });
-      const baseBreakdown = scoreJob(profile, job, requirements, facts);
-      const breakdown = applyOutcomeLearning(baseBreakdown, job, requirements, input.useOutcomeLearning, outcomeModel);
-      const key = canonicalUrl(job.sourceUrl);
-
-      if (breakdown.total >= input.minFinalScore && !known.has(key)) {
-        const result = db.prepare(`
-          INSERT INTO jobs (
-            source_url, title, company, location, salary_text, description,
-            score, score_json, analysis_json, source_text, ats, status, origin
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCORED', 'discovery')
-        `).run(
-          job.sourceUrl,
-          job.title,
-          job.company,
-          job.location,
-          job.salaryText,
-          job.description,
-          breakdown.total,
-          JSON.stringify(breakdown),
-          JSON.stringify(requirements),
-          item.posting.evidence.bodyText,
-          item.posting.ats
-        );
-
-        known.add(key);
-        imported.push({
-          id: Number(result.lastInsertRowid),
-          ...job,
-          ats: item.posting.ats,
-          score: breakdown.total,
-          preScore: item.preScore,
-          requirements,
-          scoreBreakdown: breakdown
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      errors.push(`${item.posting.company} - ${item.posting.title}: ${message}`);
-    } finally {
-      evaluated += 1;
-      updateProgress(Date.now() - analysisStarted);
-    }
-  });
-
-  imported.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
-  const analysisMs = Date.now() - analysisStarted;
-  const durationMs = Date.now() - startedAt;
-
-  db.prepare(`
-    UPDATE discovery_runs SET
-      status = 'COMPLETED', sources_scanned = ?, jobs_seen = ?, jobs_shortlisted = ?, jobs_analyzed = ?, jobs_imported = ?,
-      cache_hits = ?, ai_requests = ?, duration_ms = ?, source_fetch_ms = ?, analysis_ms = ?,
-      errors_json = ?, completed_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(
-    sources.length,
-    allPostings.length,
-    ranked.length,
-    evaluated,
-    imported.length,
-    cacheHits,
-    aiRequests,
-    durationMs,
-    sourceFetchMs,
-    analysisMs,
-    JSON.stringify(errors),
-    runId
-  );
-
-  return {
-    runId,
-    sourcesScanned: sources.length,
-    jobsSeen: allPostings.length,
-    candidatesAfterPrefilter: ranked.length,
-    jobsAnalyzed: evaluated,
-    jobsImported: imported.length,
-    cacheHits,
-    aiRequests,
-    sourceFetchMs,
-    analysisMs,
-    durationMs,
-    analysisConcurrency: input.analysisConcurrency,
-    useOutcomeLearning: input.useOutcomeLearning,
-    entryLevelOnly,
-    broadEntryLevelIT,
-    includeRemoteUS,
-    searchQueries,
-    targetTitles,
-    locations,
-    imported,
-    errors
-  };
-}
-
-
-let discoveryRunning = false;
-
-export function isDiscoveryRunning() {
-  return discoveryRunning;
-}
-
-export async function runDiscovery(input: DiscoveryRunInput) {
-  if (discoveryRunning) {
-    throw new Error("A discovery run is already in progress. Wait for it to finish before starting another one.");
+    }catch{/* Invalid legacy analysis remains eligible for a fresh extraction. */}
   }
-  discoveryRunning = true;
-  try {
-    return await executeDiscovery(input);
-  } finally {
-    discoveryRunning = false;
-  }
+  requirements ||= quickRequirements(posting);
+  const scoreKind=retained?previous.score_kind:deep?"deep":"quick";
+  const analysisStatus=sourceChanged?"stale":retained?previous.analysis_status:deep?"complete":"not_requested";
+  const job=JobInputSchema.parse(posting),base=scoreJob(profile,job,requirements,facts);
+  if(!deep)base.matchedSkills=mentionedSkills(profile,facts,posting.description);
+  const breakdown={...applyOutcomeLearning(base,job,requirements,input.useOutcomeLearning),outcomeLearningEnabled:input.useOutcomeLearning};let id=existingId;
+  if(id){db.prepare("UPDATE jobs SET title=?,company=?,location=?,salary_text=?,description=?,score=?,score_json=?,analysis_json=?,source_text=?,ats=?,score_kind=?,analysis_status=?,pre_score=?,score_cv_id=?,score_profile_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(job.title,job.company,job.location,job.salaryText,job.description,breakdown.total,JSON.stringify(breakdown),JSON.stringify(requirements),posting.evidence.bodyText,posting.ats,scoreKind,analysisStatus,breakdown.total,cvId,profileHash(profile),id);}
+  else{id=Number(db.prepare("INSERT INTO jobs(source_url,title,company,location,salary_text,description,score,score_json,analysis_json,source_text,ats,status,origin,score_kind,analysis_status,pre_score,discovered_at,score_cv_id,score_profile_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SCORED','discovery',?,?,?,CURRENT_TIMESTAMP,?,?)").run(job.sourceUrl,job.title,job.company,job.location,job.salaryText,job.description,breakdown.total,JSON.stringify(breakdown),JSON.stringify(requirements),posting.evidence.bodyText,posting.ats,deep?"deep":"quick",deep?"complete":"not_requested",breakdown.total,cvId,profileHash(profile)).lastInsertRowid);jobsNew++;existing.set(canonicalUrl(posting.sourceUrl),id);}
+  db.prepare("INSERT OR IGNORE INTO discovery_run_jobs(run_id,job_id) VALUES(?,?)").run(runId,id);jobsSaved++;ranked.push({posting,id,preScore:breakdown.total,requirements,deep:deep&&!sourceChanged});
+ }
+ ranked.sort((a,b)=>b.preScore-a.preScore);
+ const shortlist=selectDiverseShortlist(ranked.filter(r=>!r.deep&&r.preScore>=input.minPreScore),input.maxDeepAnalysis);
+ report("ANALYZING","Quick results are saved. Optional deep analysis is running.",{jobsToAnalyze:shortlist.length});
+ const analysisStart=Date.now();
+ for(const item of shortlist){taskCheckpoint();aiRequests++;try{await analyzeStoredJob(item.id,dependencies.analyze,input.useOutcomeLearning);}catch(e){taskCheckpoint();errors.push(`${item.posting.company} - ${item.posting.title}: ${safeAiError(e).message}`);}jobsAnalyzed++;report("ANALYZING",`Deep analysis ${jobsAnalyzed} of ${shortlist.length}; all quick results remain available.`,{jobsToAnalyze:shortlist.length});}
+ const analysisMs=Date.now()-analysisStart,durationMs=Date.now()-startedAt;
+ taskCheckpoint();db.prepare("UPDATE discovery_runs SET status='COMPLETED',sources_scanned=?,jobs_seen=?,jobs_shortlisted=?,jobs_analyzed=?,jobs_imported=?,cache_hits=?,ai_requests=?,duration_ms=?,source_fetch_ms=?,analysis_ms=?,errors_json=?,completed_at=CURRENT_TIMESTAMP WHERE id=?").run(sourcesScanned,jobsSeen,ranked.length,jobsAnalyzed,jobsNew,cacheHits,aiRequests,durationMs,sourceFetchMs,analysisMs,JSON.stringify(errors),runId);
+ report("SAVING","Discovery results saved.",{jobsToAnalyze:shortlist.length,warnings:errors.length});
+ const imported=getDiscoveryResults({runId,limit:100}).items;
+ return {runId,sourcesScanned,jobsSeen,jobsSaved,jobsImported:jobsNew,candidatesAfterPrefilter:ranked.length,jobsAnalyzed,cacheHits,aiRequests,durationMs,sourceFetchMs,analysisMs,analysisConcurrency:1,useOutcomeLearning:input.useOutcomeLearning,entryLevelOnly:input.entryLevelOnly,broadEntryLevelIT:input.broadEntryLevelIT,includeRemoteUS:input.includeRemoteUS,searchQueries,targetTitles,locations,imported,errors};
+ }catch(e){db.prepare("UPDATE discovery_runs SET status=?,sources_scanned=?,jobs_seen=?,jobs_imported=?,errors_json=?,completed_at=CURRENT_TIMESTAMP WHERE id=?").run(taskContextStatus(),sourcesScanned,jobsSeen,jobsNew,JSON.stringify([...errors,e instanceof Error?e.message:"Discovery failed"]),runId);throw e;}
 }
+function taskContextStatus(){try{taskCheckpoint();return"FAILED";}catch{return"INTERRUPTED";}}
+export async function analyzeStoredJob(id:number,analyze=(e:JobPageEvidence)=>extractRequirementsFromEvidence(e),useOutcomeLearning=true){
+ const row=db.prepare("SELECT id,source_url AS sourceUrl,title,company,location,salary_text AS salaryText,description,ats,source_text AS sourceText,analysis_status AS analysisStatus,score_kind AS scoreKind FROM jobs WHERE id=?").get(id) as (DiscoveryPosting&{id:number;sourceText:string;analysisStatus:string;scoreKind:string})|undefined;if(!row)throw new Error("Job not found.");
+ taskCheckpoint();db.prepare("UPDATE jobs SET analysis_status='analyzing' WHERE id=?").run(id);
+ try{
+ const evidence=makeEvidence(row,{});if(row.sourceText)evidence.bodyText=row.sourceText;
+ const requirements=await analyze(evidence);taskCheckpoint();const profile=savedProfile(),cv=reviewedCv();const base=scoreJob(profile,row,requirements,cv?.facts);const breakdown={...applyOutcomeLearning(base,row,requirements,useOutcomeLearning),outcomeLearningEnabled:useOutcomeLearning};
+ db.prepare("UPDATE jobs SET analysis_json=?,score=?,score_json=?,score_kind='deep',analysis_status='complete',score_cv_id=?,score_profile_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(JSON.stringify(requirements),breakdown.total,JSON.stringify(breakdown),cv?.id||null,profileHash(profile),id);saveCachedRequirements({...row,evidence},requirements);return{jobId:id,score:breakdown.total};
+ }catch(e){
+   // Cancellation is not a model failure. Restore only transient status; never write
+   // a late AI payload after the task has lost its lease or its caller has aborted.
+   let cancelled=taskSignal()?.aborted===true;
+   try{taskCheckpoint();}catch{cancelled=true;}
+   const status=cancelled?(row.analysisStatus==="analyzing"?(row.scoreKind==="quick"?"not_requested":"complete"):row.analysisStatus):"failed";
+   db.prepare("UPDATE jobs SET analysis_status=? WHERE id=? AND analysis_status='analyzing'").run(status,id);
+   throw e;
+ }
+}
+export type ResultFilters={runId?:number;minScore?:number;band?:string;strictTitle?:boolean;entryLevelOnly?:boolean;hideSenior?:boolean;strictLocation?:boolean;remoteOnly?:boolean;includeRemoteUS?:boolean;analysis?:string;query?:string;offset?:number;limit?:number};
+export function getDiscoveryResults(filters:ResultFilters={}){
+ const profile=savedProfile(),cv=reviewedCv(),hash=profileHash(profile);
+ const rows=db.prepare(`SELECT j.*,j.source_url AS sourceUrl,j.salary_text AS salaryText,j.score_kind AS scoreKind,j.analysis_status AS analysisStatus FROM jobs j ${filters.runId?"JOIN discovery_run_jobs r ON r.job_id=j.id WHERE r.run_id=?":"WHERE j.origin='discovery' OR EXISTS (SELECT 1 FROM discovery_run_jobs r WHERE r.job_id=j.id)"} ORDER BY j.score DESC,j.id DESC`).all(...(filters.runId?[filters.runId]:[])) as any[];
+ const items=rows.map(row=>{let scoreBreakdown:any={},requirements:JobRequirements=JobRequirementsSchema.parse({});try{scoreBreakdown=JSON.parse(row.score_json);requirements=JobRequirementsSchema.parse(JSON.parse(row.analysis_json));}catch{}
+ if(row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)){
+   const base=scoreJob(profile,JobInputSchema.parse(row),requirements,cv?.facts);
+   if(row.scoreKind==="quick")base.matchedSkills=mentionedSkills(profile,cv?.facts||null,row.description);
+   const enabled=scoreBreakdown.outcomeLearningEnabled!==false;scoreBreakdown={...applyOutcomeLearning(base,row,requirements,enabled),outcomeLearningEnabled:enabled};row.score=scoreBreakdown.total;
+   db.prepare("UPDATE jobs SET score=?,score_json=?,score_profile_hash=?,score_cv_id=? WHERE id=?").run(row.score,JSON.stringify(scoreBreakdown),hash,cv?.id||null,row.id);
+   row.score_profile_hash=hash;row.score_cv_id=cv?.id||null;
+ }
+ return{id:row.id,title:row.title,company:row.company,location:row.location,sourceUrl:row.sourceUrl,salaryText:row.salaryText,description:row.description,ats:row.ats,score:row.score,scoreKind:row.scoreKind,analysisStatus:row.analysisStatus,preScore:row.pre_score,scoreBreakdown,requirements,stale:row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)};});
+ items.sort((a,b)=>b.score-a.score||b.id-a.id);
+ const counts={all:items.length,strong:items.filter(j=>j.score>=75).length,possible:items.filter(j=>j.score>=50&&j.score<75).length,stretch:items.filter(j=>j.score<50).length,notDeep:items.filter(j=>j.scoreKind!=="deep").length};
+ const filtered=items.filter(j=>{
+  if(j.score<(filters.minScore||0))return false;
+  if(filters.band==="strong"&&j.score<75||filters.band==="possible"&&(j.score<50||j.score>=75)||filters.band==="stretch"&&j.score>=50)return false;
+  if(filters.analysis==="quick"&&j.scoreKind==="deep"||filters.analysis==="deep"&&j.scoreKind!=="deep")return false;
+  if(filters.query&&!`${j.title} ${j.company} ${j.description}`.toLowerCase().includes(filters.query.toLowerCase()))return false;
+  if(filters.strictTitle&&!titleAlignmentScore(j.title,targets(profile)).aligned)return false;
+  if(filters.entryLevelOnly&&!entryLevelEligibility(j.title,j.description).allowed)return false;
+  if(filters.hideSenior&&/\b(senior|staff|principal|lead|director|head of)\b/i.test(j.title))return false;
+  const geo=locationEligibility(j.location,j.description,[...profile.preferredLocations,profile.city,profile.country].filter(Boolean),profile.remotePreference);
+  if(filters.strictLocation&&!geo.allowed||filters.remoteOnly&&j.requirements.workplaceType!=="remote"||filters.includeRemoteUS===false&&geo.remote&&geo.usScope)return false;return true;
+ });
+ const limit=Math.max(1,Math.min(100,filters.limit||30)),offset=Math.max(0,filters.offset||0);
+ return {items:filtered.slice(offset,offset+limit),counts,total:filtered.length,offset,limit,hasMore:offset+limit<filtered.length};
+}
+let discoveryRunning=false;
+export function isDiscoveryRunning(){return discoveryRunning;}
+export async function runDiscovery(input:DiscoveryRunInput,dependencies:DiscoveryDependencies={}){if(discoveryRunning)throw new Error("Discovery is already running. Wait for the current run to finish.");discoveryRunning=true;try{return await executeDiscovery(input,dependencies);}finally{discoveryRunning=false;}}

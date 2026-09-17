@@ -70,6 +70,11 @@ export const ProjectFactSchema = z.object({
 });
 
 export const CandidateFactsSchema = z.object({
+  linkedinUrl: z.string().default(""),
+  githubUrl: z.string().default(""),
+  portfolioUrl: z.string().default(""),
+  city: z.string().default(""),
+  country: z.string().default(""),
   fullName: z.string().default(""),
   email: z.string().default(""),
   phone: z.string().default(""),
@@ -180,10 +185,10 @@ export type DiscoverySource = z.infer<typeof DiscoverySourceSchema>;
 export const DiscoveryRunInputSchema = z.object({
   targetTitles: z.array(z.string()).optional(),
   locations: z.array(z.string()).optional(),
-  minPreScore: z.number().min(0).max(100).default(25),
-  minFinalScore: z.number().min(0).max(100).default(60),
-  maxDeepAnalysis: z.number().int().min(1).max(20).default(12),
-  analysisConcurrency: z.number().int().min(1).max(4).default(2),
+  minPreScore: z.number().min(0).max(100).default(0),
+  minFinalScore: z.number().min(0).max(100).default(0),
+  maxDeepAnalysis: z.number().int().min(0).max(20).default(0),
+  analysisConcurrency: z.number().int().min(1).max(4).default(1),
   useOutcomeLearning: z.boolean().default(true),
   entryLevelOnly: z.boolean().default(false),
   broadEntryLevelIT: z.boolean().default(false),

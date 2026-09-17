@@ -1,3 +1,4 @@
+import { containsTerm } from "../services/matching.js";
 import type { FastifyInstance } from "fastify";
 import {
   CandidateFactsSchema,
@@ -47,7 +48,7 @@ function serializeRows(useOutcomeLearning = true) {
   const rows = db.prepare(`
     SELECT id, source_url AS sourceUrl, title, company, location, salary_text AS salaryText,
            description, score, score_json AS scoreJson, analysis_json AS analysisJson,
-           ats, origin, status, created_at AS createdAt
+           ats, origin, status, created_at AS createdAt, score_kind AS scoreKind, analysis_status AS analysisStatus
     FROM jobs ORDER BY score DESC, created_at DESC
   `).all() as Array<Record<string, unknown> & { scoreJson: string; analysisJson: string; id: number }>;
 
@@ -55,6 +56,7 @@ function serializeRows(useOutcomeLearning = true) {
     const requirements = parseRequirements(row.analysisJson);
     const job = JobInputSchema.parse(row);
     const baseBreakdown = scoreJob(profile, job, requirements, facts);
+    if (row.scoreKind === "quick") baseBreakdown.matchedSkills = [...new Set([...profile.skills, ...(facts?.skills || []), ...(facts?.projects.flatMap(p => p.technologies) || [])])].filter(skill => containsTerm(job.description, skill));
     const scoreBreakdown = applyOutcomeLearning(baseBreakdown, job, requirements, useOutcomeLearning, outcomeModel);
     if (useOutcomeLearning) {
       db.prepare("UPDATE jobs SET score = ?, score_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")

@@ -40,7 +40,7 @@ async function settled(id: number) {
   throw new Error("Enhancement failed to settle");
 }
 try {
-  check("offline import captures explicit contacts and skills without guessing qualifications", () => { const f = localDraft(source); assert.equal(f.fullName, "Example Person"); assert.equal(f.email, "person@example.invalid"); assert.ok(f.skills.includes("Payroll")); assert.equal(f.education.length, 0); });
+  check("offline import captures explicit contacts and skills without guessing qualifications", () => { const f = localDraft(source); assert.equal(f.fullName, "Example Person"); assert.equal(f.email, "person@example.invalid"); assert.ok(f.skills.includes("Payroll")); assert.equal(f.education[0].qualification, "Diploma in Accounting"); });
   check("AI values require whole source terms", () => { const f = groundFacts({ skills: ["Java", "C", "R", "Excel", "Imaginary Skill"], education: null }, "JavaScript and C++ experience; Excel reports"); assert.deepEqual(f.skills, ["Excel"]); });
   check("precise skills distinguish neighbouring technologies and compound requirements", () => { for (const [a,b] of [["Java","JavaScript"],["C","C++"],["R","Customer service"],["Excel","Excellent communication"],["React","React Native"],["React","React and Python"]]) assert.equal(skillMatches(a,b), false); assert.equal(skillMatches("JS", "JavaScript"), true); assert.equal(skillMatches("Excel", "Microsoft Excel"), true); });
   check("chosen career targets override an unrelated current job", () => { assert.deepEqual(targets({ currentTitle: "Software Engineer", targetTitles: ["Accounts Assistant"] }), ["Accounts Assistant"]); });
