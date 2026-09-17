@@ -11,5 +11,29 @@ try{
  const output=await d.runDiscovery(DiscoveryRunInputSchema.parse({minFinalScore:99,maxDeepAnalysis:1}),deps);assert.equal(output.jobsSaved,3);assert.equal(calls,1);assert.equal(d.getDiscoveryResults().counts.all,3);assert.ok(d.getDiscoveryResults().items.some(j=>j.score<50));assert.ok(d.getDiscoveryResults().items.some(j=>j.analysisStatus==="failed"));assert.equal(d.getDiscoveryResults({strictTitle:true}).total,1);
  const repeat=await d.runDiscovery(DiscoveryRunInputSchema.parse({maxDeepAnalysis:0}),deps);assert.equal(repeat.jobsImported,0);assert.equal(d.getDiscoveryResults({runId:repeat.runId}).total,3);
  const job=d.getDiscoveryResults({strictTitle:true}).items[0];await d.analyzeStoredJob(job.id,async()=>JobRequirementsSchema.parse({requiredSkills:["React"],workplaceType:"remote"}));assert.equal(d.getDiscoveryResults({analysis:"deep"}).total,1);assert.equal(d.getDiscoveryResults({analysis:"quick"}).total,2);
- console.log("Discovery workflow PASS: persist all scores, survive AI failure, strict view filter, stable IDs, run membership and deep analysis");
+ // A URL-imported job may have detailed requirements without a discovery-cache entry.
+ const detailed=JobRequirementsSchema.parse({requiredSkills:["TypeScript"],qualifications:["Computer science degree"],workplaceType:"remote"});
+ const manual=post("Frontend Developer","Remote - Europe","Build and maintain TypeScript interfaces in a product team with an accessible design system.","manual");
+ const manualId=Number(db.prepare("INSERT INTO jobs(source_url,title,company,location,description,analysis_json,score_kind,analysis_status,origin) VALUES(?,?,?,?,?,?,'legacy','complete','url')").run(manual.sourceUrl,manual.title,manual.company,manual.location,manual.description,JSON.stringify(detailed)).lastInsertRowid);
+ const appId=Number(db.prepare("INSERT INTO applications(job_id,state) VALUES(?,'SUBMITTED')").run(manualId).lastInsertRowid);
+ await d.runDiscovery(DiscoveryRunInputSchema.parse({maxDeepAnalysis:0}),{fetchSource:async()=>[manual]});
+ let retained=db.prepare("SELECT analysis_json,score_kind,analysis_status FROM jobs WHERE id=?").get(manualId) as any;
+ assert.deepEqual(JSON.parse(retained.analysis_json),detailed);assert.equal(retained.score_kind,"legacy");assert.equal(retained.analysis_status,"complete");
+ assert.equal((db.prepare("SELECT job_id FROM applications WHERE id=?").get(appId) as any).job_id,manualId);
+ await d.runDiscovery(DiscoveryRunInputSchema.parse({maxDeepAnalysis:0}),{fetchSource:async()=>[{...manual,description:manual.description+" Updated responsibilities."}]});
+ retained=db.prepare("SELECT analysis_json,analysis_status FROM jobs WHERE id=?").get(manualId) as any;
+ assert.deepEqual(JSON.parse(retained.analysis_json),detailed);assert.equal(retained.analysis_status,"stale");
+ // Make learning active, then prove an explicit disabled run stays disabled even for deep scores.
+ for(let i=0;i<3;i++)db.prepare("INSERT INTO applications(job_id,state,outcome,submitted_at) VALUES(?,'SUBMITTED','INTERVIEW',CURRENT_TIMESTAMP)").run(job.id);
+ const {buildOutcomeLearningModel}=await import("../src/services/outcomeLearning.js");assert.equal(buildOutcomeLearningModel().active,true);
+ const fresh=post("Frontend Developer","Remote - Europe","Develop React components and accessible frontend experiences for enterprise customers.","fresh");
+ const withoutLearning=await d.runDiscovery(DiscoveryRunInputSchema.parse({maxDeepAnalysis:1,useOutcomeLearning:false}),{fetchSource:async()=>[fresh],analyze:async()=>JobRequirementsSchema.parse({requiredSkills:["React"],workplaceType:"remote"})});
+ const unlearned=d.getDiscoveryResults({runId:withoutLearning.runId}).items[0];assert.equal(unlearned.scoreKind,"deep");assert.equal(unlearned.scoreBreakdown.outcomeLearningActive,false);assert.equal(unlearned.scoreBreakdown.outcomeAdjustment,0);
+ // A cancelled request must leave the previous valid quick data and non-failure status intact.
+ const quick=d.getDiscoveryResults({analysis:"quick"}).items.find(j=>j.scoreKind==="quick")!;
+ const before=db.prepare("SELECT analysis_json,score,score_kind,analysis_status FROM jobs WHERE id=?").get(quick.id) as any;
+ const {taskContext}=await import("../src/services/taskContext.js");const controller=new AbortController();
+ await assert.rejects(taskContext.run({id:"cancel-fixture",signal:controller.signal,checkpoint:()=>controller.signal.throwIfAborted(),progress:()=>{}},()=>d.analyzeStoredJob(quick.id,async()=>{controller.abort(new DOMException("Cancelled fixture","AbortError"));throw controller.signal.reason;})));
+ assert.deepEqual(db.prepare("SELECT analysis_json,score,score_kind,analysis_status FROM jobs WHERE id=?").get(quick.id),before);
+ console.log("Discovery workflow PASS: persist all scores, survive AI failure, strict view filter, stable IDs, run membership, detailed-analysis retention, outcome preference and cancellation");
 }finally{db.close();fs.rmSync(temp,{recursive:true,force:true});}

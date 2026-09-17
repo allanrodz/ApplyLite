@@ -1,4 +1,4 @@
-import { requestSignal,taskCheckpoint,taskProgress } from "./taskContext.js";
+import { requestSignal,taskCheckpoint,taskProgress,taskSignal } from "./taskContext.js";
 import { containsTerm,canonicalSkill } from "./matching.js";
 import { safeAiError,AiError } from "./aiProvider.js";
 import { reviewedCv,savedProfile } from "./onboarding.js";
@@ -1276,19 +1276,36 @@ async function executeDiscovery(input:DiscoveryRunInput,dependencies:DiscoveryDe
  for(const posting of allPostings){if(!JobInputSchema.safeParse(posting).success || !/^https?:\/\//i.test(posting.sourceUrl)){invalidPostings++;continue;}const key=canonicalUrl(posting.sourceUrl);if(!unique.has(key))unique.set(key,posting);}
  const ranked:{posting:DiscoveryPosting;id:number;preScore:number;requirements:JobRequirements;deep:boolean}[]=[];
  for(const posting of unique.values()){
-  taskCheckpoint();let requirements=loadCachedRequirements(posting),deep=!!requirements;if(deep)cacheHits++;requirements ||= quickRequirements(posting);
+  taskCheckpoint();
+  const existingId=existing.get(canonicalUrl(posting.sourceUrl));
+  const previous=existingId?db.prepare("SELECT title,company,location,salary_text AS salaryText,description,analysis_json,score_kind,analysis_status FROM jobs WHERE id=?").get(existingId) as any:null;
+  let requirements=loadCachedRequirements(posting),deep=!!requirements;
+  if(deep)cacheHits++;
+  let retained=false,sourceChanged=false;
+  if(!requirements&&previous&&previous.score_kind!=="quick"){
+    try{
+      const parsed=JobRequirementsSchema.safeParse(JSON.parse(previous.analysis_json));
+      if(parsed.success&&(previous.score_kind==="deep"||parsed.data.requiredSkills.length||parsed.data.preferredSkills.length||parsed.data.qualifications.length||parsed.data.responsibilities.length)){
+        requirements=parsed.data;retained=true;deep=true;
+        sourceChanged=postingContentHash(previous)!==postingContentHash(posting);
+      }
+    }catch{/* Invalid legacy analysis remains eligible for a fresh extraction. */}
+  }
+  requirements ||= quickRequirements(posting);
+  const scoreKind=retained?previous.score_kind:deep?"deep":"quick";
+  const analysisStatus=sourceChanged?"stale":retained?previous.analysis_status:deep?"complete":"not_requested";
   const job=JobInputSchema.parse(posting),base=scoreJob(profile,job,requirements,facts);
   if(!deep)base.matchedSkills=mentionedSkills(profile,facts,posting.description);
-  const breakdown=applyOutcomeLearning(base,job,requirements,input.useOutcomeLearning);let id=existing.get(canonicalUrl(posting.sourceUrl));
-  if(id){db.prepare("UPDATE jobs SET title=?,company=?,location=?,salary_text=?,description=?,score=?,score_json=?,analysis_json=?,source_text=?,ats=?,score_kind=?,analysis_status=?,pre_score=?,score_cv_id=?,score_profile_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(job.title,job.company,job.location,job.salaryText,job.description,breakdown.total,JSON.stringify(breakdown),JSON.stringify(requirements),posting.evidence.bodyText,posting.ats,deep?"deep":"quick",deep?"complete":"not_requested",breakdown.total,cvId,profileHash(profile),id);}
+  const breakdown={...applyOutcomeLearning(base,job,requirements,input.useOutcomeLearning),outcomeLearningEnabled:input.useOutcomeLearning};let id=existingId;
+  if(id){db.prepare("UPDATE jobs SET title=?,company=?,location=?,salary_text=?,description=?,score=?,score_json=?,analysis_json=?,source_text=?,ats=?,score_kind=?,analysis_status=?,pre_score=?,score_cv_id=?,score_profile_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(job.title,job.company,job.location,job.salaryText,job.description,breakdown.total,JSON.stringify(breakdown),JSON.stringify(requirements),posting.evidence.bodyText,posting.ats,scoreKind,analysisStatus,breakdown.total,cvId,profileHash(profile),id);}
   else{id=Number(db.prepare("INSERT INTO jobs(source_url,title,company,location,salary_text,description,score,score_json,analysis_json,source_text,ats,status,origin,score_kind,analysis_status,pre_score,discovered_at,score_cv_id,score_profile_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SCORED','discovery',?,?,?,CURRENT_TIMESTAMP,?,?)").run(job.sourceUrl,job.title,job.company,job.location,job.salaryText,job.description,breakdown.total,JSON.stringify(breakdown),JSON.stringify(requirements),posting.evidence.bodyText,posting.ats,deep?"deep":"quick",deep?"complete":"not_requested",breakdown.total,cvId,profileHash(profile)).lastInsertRowid);jobsNew++;existing.set(canonicalUrl(posting.sourceUrl),id);}
-  db.prepare("INSERT OR IGNORE INTO discovery_run_jobs(run_id,job_id) VALUES(?,?)").run(runId,id);jobsSaved++;ranked.push({posting,id,preScore:breakdown.total,requirements,deep});
+  db.prepare("INSERT OR IGNORE INTO discovery_run_jobs(run_id,job_id) VALUES(?,?)").run(runId,id);jobsSaved++;ranked.push({posting,id,preScore:breakdown.total,requirements,deep:deep&&!sourceChanged});
  }
  ranked.sort((a,b)=>b.preScore-a.preScore);
  const shortlist=selectDiverseShortlist(ranked.filter(r=>!r.deep&&r.preScore>=input.minPreScore),input.maxDeepAnalysis);
  report("ANALYZING","Quick results are saved. Optional deep analysis is running.",{jobsToAnalyze:shortlist.length});
  const analysisStart=Date.now();
- for(const item of shortlist){taskCheckpoint();aiRequests++;try{await analyzeStoredJob(item.id,dependencies.analyze);}catch(e){taskCheckpoint();errors.push(`${item.posting.company} - ${item.posting.title}: ${safeAiError(e).message}`);}jobsAnalyzed++;report("ANALYZING",`Deep analysis ${jobsAnalyzed} of ${shortlist.length}; all quick results remain available.`,{jobsToAnalyze:shortlist.length});}
+ for(const item of shortlist){taskCheckpoint();aiRequests++;try{await analyzeStoredJob(item.id,dependencies.analyze,input.useOutcomeLearning);}catch(e){taskCheckpoint();errors.push(`${item.posting.company} - ${item.posting.title}: ${safeAiError(e).message}`);}jobsAnalyzed++;report("ANALYZING",`Deep analysis ${jobsAnalyzed} of ${shortlist.length}; all quick results remain available.`,{jobsToAnalyze:shortlist.length});}
  const analysisMs=Date.now()-analysisStart,durationMs=Date.now()-startedAt;
  taskCheckpoint();db.prepare("UPDATE discovery_runs SET status='COMPLETED',sources_scanned=?,jobs_seen=?,jobs_shortlisted=?,jobs_analyzed=?,jobs_imported=?,cache_hits=?,ai_requests=?,duration_ms=?,source_fetch_ms=?,analysis_ms=?,errors_json=?,completed_at=CURRENT_TIMESTAMP WHERE id=?").run(sourcesScanned,jobsSeen,ranked.length,jobsAnalyzed,jobsNew,cacheHits,aiRequests,durationMs,sourceFetchMs,analysisMs,JSON.stringify(errors),runId);
  report("SAVING","Discovery results saved.",{jobsToAnalyze:shortlist.length,warnings:errors.length});
@@ -1297,14 +1314,22 @@ async function executeDiscovery(input:DiscoveryRunInput,dependencies:DiscoveryDe
  }catch(e){db.prepare("UPDATE discovery_runs SET status=?,sources_scanned=?,jobs_seen=?,jobs_imported=?,errors_json=?,completed_at=CURRENT_TIMESTAMP WHERE id=?").run(taskContextStatus(),sourcesScanned,jobsSeen,jobsNew,JSON.stringify([...errors,e instanceof Error?e.message:"Discovery failed"]),runId);throw e;}
 }
 function taskContextStatus(){try{taskCheckpoint();return"FAILED";}catch{return"INTERRUPTED";}}
-export async function analyzeStoredJob(id:number,analyze=(e:JobPageEvidence)=>extractRequirementsFromEvidence(e)){
- const row=db.prepare("SELECT id,source_url AS sourceUrl,title,company,location,salary_text AS salaryText,description,ats,source_text AS sourceText FROM jobs WHERE id=?").get(id) as (DiscoveryPosting&{id:number;sourceText:string})|undefined;if(!row)throw new Error("Job not found.");
+export async function analyzeStoredJob(id:number,analyze=(e:JobPageEvidence)=>extractRequirementsFromEvidence(e),useOutcomeLearning=true){
+ const row=db.prepare("SELECT id,source_url AS sourceUrl,title,company,location,salary_text AS salaryText,description,ats,source_text AS sourceText,analysis_status AS analysisStatus,score_kind AS scoreKind FROM jobs WHERE id=?").get(id) as (DiscoveryPosting&{id:number;sourceText:string;analysisStatus:string;scoreKind:string})|undefined;if(!row)throw new Error("Job not found.");
  taskCheckpoint();db.prepare("UPDATE jobs SET analysis_status='analyzing' WHERE id=?").run(id);
  try{
  const evidence=makeEvidence(row,{});if(row.sourceText)evidence.bodyText=row.sourceText;
- const requirements=await analyze(evidence);taskCheckpoint();const profile=savedProfile(),cv=reviewedCv();const base=scoreJob(profile,row,requirements,cv?.facts);const breakdown=applyOutcomeLearning(base,row,requirements,true);
+ const requirements=await analyze(evidence);taskCheckpoint();const profile=savedProfile(),cv=reviewedCv();const base=scoreJob(profile,row,requirements,cv?.facts);const breakdown={...applyOutcomeLearning(base,row,requirements,useOutcomeLearning),outcomeLearningEnabled:useOutcomeLearning};
  db.prepare("UPDATE jobs SET analysis_json=?,score=?,score_json=?,score_kind='deep',analysis_status='complete',score_cv_id=?,score_profile_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(JSON.stringify(requirements),breakdown.total,JSON.stringify(breakdown),cv?.id||null,profileHash(profile),id);saveCachedRequirements({...row,evidence},requirements);return{jobId:id,score:breakdown.total};
- }catch(e){db.prepare("UPDATE jobs SET analysis_status='failed' WHERE id=? AND analysis_status='analyzing'").run(id);throw e;}
+ }catch(e){
+   // Cancellation is not a model failure. Restore only transient status; never write
+   // a late AI payload after the task has lost its lease or its caller has aborted.
+   let cancelled=taskSignal()?.aborted===true;
+   try{taskCheckpoint();}catch{cancelled=true;}
+   const status=cancelled?(row.analysisStatus==="analyzing"?(row.scoreKind==="quick"?"not_requested":"complete"):row.analysisStatus):"failed";
+   db.prepare("UPDATE jobs SET analysis_status=? WHERE id=? AND analysis_status='analyzing'").run(status,id);
+   throw e;
+ }
 }
 export type ResultFilters={runId?:number;minScore?:number;band?:string;strictTitle?:boolean;entryLevelOnly?:boolean;hideSenior?:boolean;strictLocation?:boolean;remoteOnly?:boolean;includeRemoteUS?:boolean;analysis?:string;query?:string;offset?:number;limit?:number};
 export function getDiscoveryResults(filters:ResultFilters={}){
@@ -1314,7 +1339,7 @@ export function getDiscoveryResults(filters:ResultFilters={}){
  if(row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)){
    const base=scoreJob(profile,JobInputSchema.parse(row),requirements,cv?.facts);
    if(row.scoreKind==="quick")base.matchedSkills=mentionedSkills(profile,cv?.facts||null,row.description);
-   scoreBreakdown=applyOutcomeLearning(base,row,requirements,true);row.score=scoreBreakdown.total;
+   const enabled=scoreBreakdown.outcomeLearningEnabled!==false;scoreBreakdown={...applyOutcomeLearning(base,row,requirements,enabled),outcomeLearningEnabled:enabled};row.score=scoreBreakdown.total;
    db.prepare("UPDATE jobs SET score=?,score_json=?,score_profile_hash=?,score_cv_id=? WHERE id=?").run(row.score,JSON.stringify(scoreBreakdown),hash,cv?.id||null,row.id);
    row.score_profile_hash=hash;row.score_cv_id=cv?.id||null;
  }
