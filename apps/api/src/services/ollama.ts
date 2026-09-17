@@ -183,8 +183,18 @@ export async function ensureOllamaReady(): Promise<void> {
 }
 
 // Compatibility exports route existing features through the same consent-aware provider layer.
-export const askOllama = askAiText;
-export const askOllamaStructured = askAiStructured;
+export function askOllama(prompt: string): Promise<string> {
+  return askAiText(prompt, { numPredict: 2048 });
+}
+export function askOllamaStructured<T>(
+  prompt: string,
+  format: object,
+  options: { numPredict?: number; numCtx?: number; timeoutMs?: number } = {}
+): Promise<T> {
+  // Legacy callers include full job-page and package prompts. Preserve their established
+  // budget while new section extraction supplies its own smaller explicit limits.
+  return askAiStructured<T>(prompt, format, { numPredict: 4096, numCtx: 8192, ...options });
+}
 
 export async function ollamaHealth(): Promise<boolean> {
   return Boolean(await getTags());
