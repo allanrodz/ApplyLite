@@ -41,6 +41,9 @@ jobs:
       - name: CV and Profile browser regression
         timeout-minutes: 4
         run: npm run regression:browser -w @apply-lite/api
+      - name: Complete CV to discovery browser journey
+        timeout-minutes: 4
+        run: npm run regression:workflow-browser -w @apply-lite/api
       - name: Form and recovery regression
         if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
         timeout-minutes: 4
