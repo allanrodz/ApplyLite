@@ -51,3 +51,8 @@ Thumbs.db
 *.tsbuildinfo
 
 **/.test-build/
+
+# Synthetic browser regression output and workflow build artifacts
+.test-artifacts/
+*.sqlite
+*.sqlite3

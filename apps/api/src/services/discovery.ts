@@ -1,6 +1,6 @@
 import { requestSignal,taskCheckpoint,taskProgress } from "./taskContext.js";
 import { containsTerm,canonicalSkill } from "./matching.js";
-import { safeAiError } from "./aiProvider.js";
+import { safeAiError,AiError } from "./aiProvider.js";
 import { reviewedCv,savedProfile } from "./onboarding.js";
 import { targets, planCareerQueries, careerFamilies } from "./matching.js";
 import { createHash } from "node:crypto";
@@ -746,6 +746,7 @@ function jobsIrelandLeads(html: string) {
 
 async function fetchJobsIreland(source: DiscoverySource, alignmentTitles: string[], searchQueries: string[], locations: string[]): Promise<DiscoveryPosting[]> {
   const queries = searchQueries;
+  let successfulSearches = 0, detailsRead = 0;
   const location = searchLocation(locations);
   const leads = new Map<string, { id: string; title: string; location: string }>();
 
@@ -763,6 +764,7 @@ async function fetchJobsIreland(source: DiscoverySource, alignmentTitles: string
     url.searchParams.set("vacancyId", "-1");
     try {
       const html = await fetchText(url.toString());
+      successfulSearches++;
       for (const lead of jobsIrelandLeads(html)) {
         if (lead.title && !titleAlignmentScore(lead.title, alignmentTitles).aligned) continue;
         leads.set(lead.id, lead);
@@ -772,18 +774,21 @@ async function fetchJobsIreland(source: DiscoverySource, alignmentTitles: string
     }
   });
 
+  if (queries.length && !successfulSearches) throw new Error("All public search requests failed; this is not an empty job market.");
   const results: DiscoveryPosting[] = [];
   const selected = [...leads.values()].slice(0, MAX_PUBLIC_DETAIL_FETCHES);
   await mapWithConcurrency(selected, 6, async (lead) => {
     try {
       const url = `https://jobsireland.ie/en-US/job-Details?id=${encodeURIComponent(lead.id)}`;
       const html = await fetchText(url);
+      detailsRead++;
       const posting = buildPublicBoardPosting(source, url, html, { title: lead.title, location: lead.location });
       if (posting && (!alignmentTitles.length || titleAlignmentScore(posting.title, alignmentTitles).aligned)) results.push(posting);
     } catch {
       // One expired vacancy should not fail the whole national source.
     }
   });
+  if (leads.size > 0 && !detailsRead) throw new Error("Search found links but all job detail requests failed. Try this source later.");
   return results;
 }
 
@@ -795,6 +800,7 @@ function irishJobsLinks(html: string) {
 
 async function fetchIrishJobs(source: DiscoverySource, alignmentTitles: string[], searchQueries: string[], locations: string[]): Promise<DiscoveryPosting[]> {
   const queries = searchQueries;
+  let successfulSearches = 0, detailsRead = 0;
   const location = searchLocation(locations);
   const locationSlug = slugifySearch(location === "Ireland" ? "ireland" : location);
   const links = new Set<string>();
@@ -805,22 +811,26 @@ async function fetchIrishJobs(source: DiscoverySource, alignmentTitles: string[]
     const url = `https://www.irishjobs.ie/jobs/${querySlug}/in-${locationSlug}`;
     try {
       const html = await fetchText(url);
+      successfulSearches++;
       for (const link of irishJobsLinks(html)) links.add(link);
     } catch {
       // IrishJobs can occasionally reject one search path while other target-title paths still work.
     }
   });
 
+  if (queries.length && !successfulSearches) throw new Error("All public search requests failed; this is not an empty job market.");
   const results: DiscoveryPosting[] = [];
   await mapWithConcurrency([...links].slice(0, MAX_PUBLIC_DETAIL_FETCHES), 6, async (url) => {
     try {
       const html = await fetchText(url);
+      detailsRead++;
       const posting = buildPublicBoardPosting(source, url, html);
       if (posting && (!alignmentTitles.length || titleAlignmentScore(posting.title, alignmentTitles).aligned)) results.push(posting);
     } catch {
       // Individual IrishJobs ads can expire between the search page and detail fetch.
     }
   });
+  if (links.size > 0 && !detailsRead) throw new Error("Search found links but all job detail requests failed. Try this source later.");
   return results;
 }
 
@@ -1163,6 +1173,7 @@ function knownJobUrls() {
 function postingContentHash(posting: DiscoveryPosting) {
   return createHash("sha256")
     .update(JSON.stringify({
+      cacheVersion: "workflow-0.16-requirements-1",
       title: posting.title,
       company: posting.company,
       location: posting.location,
@@ -1258,7 +1269,7 @@ async function executeDiscovery(input:DiscoveryRunInput,dependencies:DiscoveryDe
   finally{sourcesScanned++;report("FETCHING_SOURCES",`Scanned ${sourcesScanned} of ${sources.length} sources.`);}
  });
  const sourceFetchMs=Date.now()-sourceStart;
- if(errors.length===sources.length)throw new Error("All enabled sources failed. Check the source warnings and connection.");
+ if(errors.length===sources.length)throw new AiError("SOURCE_UNAVAILABLE","All enabled job sources failed. Open source warnings, check your connection, or try different sources.",true);
  taskCheckpoint();report("QUICK_SCORING","Saving valid postings, including low-score opportunities.");
  const existing=new Map((db.prepare("SELECT id,source_url AS url FROM jobs ORDER BY id").all() as {id:number;url:string}[]).map(j=>[canonicalUrl(j.url),j.id]));
  const unique=new Map<string,DiscoveryPosting>();
@@ -1298,8 +1309,17 @@ export async function analyzeStoredJob(id:number,analyze=(e:JobPageEvidence)=>ex
 export type ResultFilters={runId?:number;minScore?:number;band?:string;strictTitle?:boolean;entryLevelOnly?:boolean;hideSenior?:boolean;strictLocation?:boolean;remoteOnly?:boolean;includeRemoteUS?:boolean;analysis?:string;query?:string;offset?:number;limit?:number};
 export function getDiscoveryResults(filters:ResultFilters={}){
  const profile=savedProfile(),cv=reviewedCv(),hash=profileHash(profile);
- const rows=db.prepare(`SELECT j.*,j.source_url AS sourceUrl,j.salary_text AS salaryText,j.score_kind AS scoreKind,j.analysis_status AS analysisStatus FROM jobs j ${filters.runId?"JOIN discovery_run_jobs r ON r.job_id=j.id WHERE r.run_id=?":"WHERE j.origin='discovery'"} ORDER BY j.score DESC,j.id DESC`).all(...(filters.runId?[filters.runId]:[])) as any[];
- const items=rows.map(row=>{let scoreBreakdown:any={},requirements:JobRequirements=JobRequirementsSchema.parse({});try{scoreBreakdown=JSON.parse(row.score_json);requirements=JobRequirementsSchema.parse(JSON.parse(row.analysis_json));}catch{}return{id:row.id,title:row.title,company:row.company,location:row.location,sourceUrl:row.sourceUrl,salaryText:row.salaryText,description:row.description,ats:row.ats,score:row.score,scoreKind:row.scoreKind,analysisStatus:row.analysisStatus,preScore:row.pre_score,scoreBreakdown,requirements,stale:row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)};});
+ const rows=db.prepare(`SELECT j.*,j.source_url AS sourceUrl,j.salary_text AS salaryText,j.score_kind AS scoreKind,j.analysis_status AS analysisStatus FROM jobs j ${filters.runId?"JOIN discovery_run_jobs r ON r.job_id=j.id WHERE r.run_id=?":"WHERE j.origin='discovery' OR EXISTS (SELECT 1 FROM discovery_run_jobs r WHERE r.job_id=j.id)"} ORDER BY j.score DESC,j.id DESC`).all(...(filters.runId?[filters.runId]:[])) as any[];
+ const items=rows.map(row=>{let scoreBreakdown:any={},requirements:JobRequirements=JobRequirementsSchema.parse({});try{scoreBreakdown=JSON.parse(row.score_json);requirements=JobRequirementsSchema.parse(JSON.parse(row.analysis_json));}catch{}
+ if(row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)){
+   const base=scoreJob(profile,JobInputSchema.parse(row),requirements,cv?.facts);
+   if(row.scoreKind==="quick")base.matchedSkills=mentionedSkills(profile,cv?.facts||null,row.description);
+   scoreBreakdown=applyOutcomeLearning(base,row,requirements,true);row.score=scoreBreakdown.total;
+   db.prepare("UPDATE jobs SET score=?,score_json=?,score_profile_hash=?,score_cv_id=? WHERE id=?").run(row.score,JSON.stringify(scoreBreakdown),hash,cv?.id||null,row.id);
+   row.score_profile_hash=hash;row.score_cv_id=cv?.id||null;
+ }
+ return{id:row.id,title:row.title,company:row.company,location:row.location,sourceUrl:row.sourceUrl,salaryText:row.salaryText,description:row.description,ats:row.ats,score:row.score,scoreKind:row.scoreKind,analysisStatus:row.analysisStatus,preScore:row.pre_score,scoreBreakdown,requirements,stale:row.score_profile_hash!==hash||row.score_cv_id!==(cv?.id||null)};});
+ items.sort((a,b)=>b.score-a.score||b.id-a.id);
  const counts={all:items.length,strong:items.filter(j=>j.score>=75).length,possible:items.filter(j=>j.score>=50&&j.score<75).length,stretch:items.filter(j=>j.score<50).length,notDeep:items.filter(j=>j.scoreKind!=="deep").length};
  const filtered=items.filter(j=>{
   if(j.score<(filters.minScore||0))return false;

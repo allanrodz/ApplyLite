@@ -1,3 +1,13 @@
+# 0.16.0 - CV-to-discovery workflow candidate
+
+- URL-backed navigation, readiness guidance, missing-field focus and explicit role suggestions.
+- Expanded deterministic CV layouts, preserved date precision, optional section-based AI extraction.
+- Consent-aware Ollama/Groq adapters, safe credentials and actionable provider diagnostics.
+- Persistent CV/discovery/deep-analysis tasks with cancellation, retry and restart states.
+- Collect/save quick-score jobs before bounded AI; optional view filters and stable run membership.
+- Additive schema 11 snapshot migration and synthetic API/browser regression coverage.
+- No automatic employer submission, OCR or guaranteed cloud free quota. Live provider performance requires a real user-selected model/key.
+
 # Changelog
 
 ## 0.15.0 - CV, matching and update reliability

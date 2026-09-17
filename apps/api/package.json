@@ -1,6 +1,6 @@
 {
   "name": "@apply-lite/api",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,9 @@
     "regression:discovery": "tsx scripts/discoveryRegression.ts",
     "regression:reliability": "tsx scripts/reliabilityRegression.ts",
     "regression:browser": "tsx scripts/reliabilityBrowser.ts",
-    "regression:edge": "tsx scripts/reviewEdgeRegression.ts"
+    "regression:edge": "tsx scripts/reviewEdgeRegression.ts",
+    "regression:workflow": "tsx scripts/onboardingRegression.ts && tsx scripts/cvParsingRegression.ts && tsx scripts/providerRegression.ts && tsx scripts/taskRegression.ts && tsx scripts/discoveryWorkflowRegression.ts && tsx scripts/workflowApiRegression.ts",
+    "regression:workflow-browser": "tsx scripts/workflowBrowser.ts"
   },
   "dependencies": {
     "@apply-lite/shared": "0.1.0",

@@ -57,6 +57,9 @@ export function deriveExperienceSummary(facts: CandidateFacts | null | undefined
   for (const entry of facts.employment) {
     const interval = intervalForEmployment(entry);
     if (!interval) { warnings.push(`Could not parse employment dates for ${entry.title} at ${entry.employer}: ${entry.startDate} - ${entry.endDate}`); continue; }
+    if (/^\d{4}$/.test(entry.startDate.trim()) || /^\d{4}$/.test(entry.endDate.trim())) {
+      warnings.push(`Year-only dates for ${entry.title} at ${entry.employer}: experience is an approximate calendar range, not verified exact months.`);
+    }
     parseableEmploymentCount++; allIntervals.push(interval);
     if (isTechnicalEmployment(entry)) technicalIntervals.push(interval);
     const reason = relevanceReason(entry, job, requirements);

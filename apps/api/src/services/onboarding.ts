@@ -1,3 +1,4 @@
+import { normalizeCvDate } from "./cvParsing.js";
 import { CandidateFactsSchema, ProfileSchema } from "@apply-lite/shared";
 import { db } from "../db/database.js";
 
@@ -29,10 +30,10 @@ export function onboardingStatus() {
   if (!hasTargetTitles) missingFields.push({path:"targetTitles", message:"Confirm target roles or enter a career search term.", required:true, href:"/profile#target-roles"});
   if (!hasPreferredLocations) missingFields.push({path:"preferredLocations", message:"Choose locations, Remote or Anywhere to guide the search.", required:false, href:"/profile#preferred-locations"});
   const employment = cv?.facts.employment || [];
-  employment.forEach((e,i) => { if (!e.startDate || !e.endDate) missingFields.push({path:`employment.${i}.dates`, message:`Employment ${i+1}: adding dates improves experience matching.`, required:false, href:"/cv#cv-review"}); });
+  employment.forEach((e,i) => { if (!normalizeCvDate(e.startDate).normalized || !normalizeCvDate(e.endDate).normalized) missingFields.push({path:`employment.${i}.dates`, message:`Employment ${i+1}: adding dates improves experience matching.`, required:false, href:"/cv#cv-review"}); });
   const nextStep = !cvUploaded ? "upload" : !cv ? "review" : !profileMerged ? "merge" : !hasTargetTitles ? "target_titles" : !hasPreferredLocations ? "locations" : "discover";
   const links: Record<string,string> = {upload:"/cv",review:"/cv#cv-review",merge:"/cv#cv-merge",target_titles:"/profile#target-roles",locations:"/profile#preferred-locations",discover:"/discover"};
   return {cvUploaded,cvReviewed:!!cv,profileMerged,hasSkills,hasTargetTitles,hasPreferredLocations,
-    employmentDatesComplete:employment.length > 0 && employment.every(e => e.startDate && e.endDate),
+    employmentDatesComplete:employment.length > 0 && employment.every(e => normalizeCvDate(e.startDate).normalized && normalizeCvDate(e.endDate).normalized),
     readyForDiscovery:hasTargetTitles, nextStep,nextHref:links[nextStep],missingFields};
 }

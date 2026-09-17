@@ -9,6 +9,7 @@ type ExperienceSummary = {
   parseableEmploymentCount: number;
   scoringDefaultYears: number;
   scoringSource: string;
+  warnings?: string[];
 };
 
 export function ProfilePage() {
@@ -56,9 +57,10 @@ export function ProfilePage() {
       </section>
       {experience && (
         <section className="panel experience-profile">
-          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.technicalYears} years technical experience (IT roles)</strong></div>
-          <div><span>All dated employment</span><strong>{experience.totalYears} years</strong></div>
+          <div><span className="eyebrow">CV-DERIVED</span><strong>{experience.totalYears} years across dated employment</strong></div>
+          {experience.technicalYears > 0 && <div><span>Technology-related roles</span><strong>{experience.technicalYears} years</strong></div>}
           <div><span>Employment ranges parsed</span><strong>{experience.parseableEmploymentCount}</strong></div>
+          {experience.warnings?.map((warning,i)=><p className="muted" key={i}>{warning}</p>)}
           <p>Job-specific scoring now derives relevant experience from your employment dates. The manual Years experience field remains a fallback only when CV evidence cannot be calculated.</p>
         </section>
       )}

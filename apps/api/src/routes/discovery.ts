@@ -1,5 +1,5 @@
 import { registerTaskHandler,enqueueTask,latestTask,getTask,cancelTask,listTasks } from "../services/tasks.js";
-import { getDiscoveryResults,analyzeStoredJob } from "../services/discovery.js";
+import { getDiscoveryResults,analyzeStoredJob,type DiscoveryDependencies } from "../services/discovery.js";
 import { readSetting,writeSetting } from "../services/onboarding.js";
 import type { FastifyInstance } from "fastify";
 import { DiscoveryRunInputSchema } from "@apply-lite/shared";
@@ -19,9 +19,9 @@ const AddSourceSchema = z.object({
 
 const ToggleSourceSchema = z.object({ enabled: z.boolean() });
 
-export async function discoveryRoutes(app: FastifyInstance) {
-  registerTaskHandler("discovery",{run:async input=>runDiscovery(DiscoveryRunInputSchema.parse(input))});
-  registerTaskHandler("job_analysis",{run:async input=>analyzeStoredJob(input.jobId)});
+export async function discoveryRoutes(app: FastifyInstance, options: { dependencies?: DiscoveryDependencies } = {}) {
+  registerTaskHandler("discovery",{run:async input=>runDiscovery(DiscoveryRunInputSchema.parse(input),options.dependencies)});
+  registerTaskHandler("job_analysis",{run:async input=>analyzeStoredJob(input.jobId,options.dependencies?.analyze)});
   app.get("/discovery/settings",async()=>readSetting("discoveryPreferences",DiscoveryRunInputSchema.parse({})));
   app.post("/discovery/runs",async(req,reply)=>{const input=DiscoveryRunInputSchema.parse(req.body||{});writeSetting("discoveryPreferences",input);const task=enqueueTask("discovery","manual",input);return reply.code(202).send({...task,runId:task.id});});
   app.get("/discovery/runs/latest",async()=>latestTask("discovery"));
@@ -57,7 +57,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const input = DiscoveryRunInputSchema.parse(request.body ?? {});
     request.log.info({ input }, "Discovery run started");
     try {
-      const result = await runDiscovery(input);
+      const result = await runDiscovery(input,options.dependencies);
       request.log.info({ runId: result.runId, jobsImported: result.jobsImported }, "Discovery run completed");
       return result;
     } catch (error) {

@@ -144,7 +144,7 @@ try {
         if ($backup -and (Test-Path -LiteralPath $backup)) { Move-Item -LiteralPath $backup -Destination $InstallDir }
         throw
     }
-    Write-Host "`nApplyLite 0.15.0 installed." -ForegroundColor Green
+    Write-Host "`nApplyLite 0.16.0 installed." -ForegroundColor Green
     if ($backup) { Write-Host "Rollback copy: $backup" }
     Write-Host "Start: $InstallDir\Start ApplyLite.cmd"
     Write-Host "Future updates: Update ApplyLite.cmd (close ApplyLite first)."

@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { localDraft } from "../src/services/cvReview.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "applylite-parser-"));
+process.env.DATABASE_PATH = path.join(testDir, "test.db");
+process.env.STORAGE_PATH = path.join(testDir, "storage");
+process.env.APPLYLITE_TEST_MODE = "true";
+const { localDraft } = await import("../src/services/cvReview.js");
+const { db } = await import("../src/db/database.js");
 import { normalizeCvDate,cvDiagnostics,suggestedRoles } from "../src/services/cvParsing.js";
 import { deriveExperienceSummary } from "../src/services/experience.js";
 const base="Example Person\nEmail: user@example.invalid\nLocation: Dublin, Ireland\nhttps://github.com/example\nSkills\nReact, TypeScript, Python\n";
@@ -10,3 +18,5 @@ const multi=localDraft(base+"Experience\nFrontend Developer\nExample Ltd\nJan 20
 assert.equal(localDraft(base+"Education\nDiploma in Accounting, Example College").education[0].institution,"Example College");
 assert.deepEqual(suggestedRoles(localDraft("Example Person\nSkills\nFood safety\n")),[]);
 console.log("CV parsing PASS: multiline/reversed/pipe employment, education, projects, optional dates, non-IT, contacts and overlap");
+
+db.close(); fs.rmSync(testDir, {recursive:true, force:true});

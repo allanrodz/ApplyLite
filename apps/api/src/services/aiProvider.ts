@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { readSetting,writeSetting } from "./onboarding.js";
 export type AiMode = "local_only"|"local_then_cloud"|"cloud_preferred";
-export type AiErrorCode = "MODEL_NOT_INSTALLED"|"PROVIDER_UNAVAILABLE"|"TIMEOUT"|"RATE_LIMIT"|"INVALID_STRUCTURED_OUTPUT"|"CONTEXT_TOO_LARGE"|"CANCELLED"|"AUTHENTICATION_FAILED"|"CONSENT_REQUIRED";
+export type AiErrorCode = "MODEL_NOT_INSTALLED"|"PROVIDER_UNAVAILABLE"|"TIMEOUT"|"RATE_LIMIT"|"INVALID_STRUCTURED_OUTPUT"|"CONTEXT_TOO_LARGE"|"CANCELLED"|"AUTHENTICATION_FAILED"|"CONSENT_REQUIRED"|"SOURCE_UNAVAILABLE"|"INPUT_REQUIRED";
 export class AiError extends Error { constructor(public code:AiErrorCode,message:string,public retryable=false){super(message);this.name="AiError";} }
 export function safeAiError(error:unknown):AiError {
  if(error instanceof AiError)return error;

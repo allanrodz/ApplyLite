@@ -64,6 +64,12 @@ export async function cvRoutes(app: FastifyInstance) {
     return reply.code(201).send(result);
   });
   registerTaskHandler("cv_enhance",{
+    retryInput(input) {
+      const value = draft(input.draftId);
+      if (!value || value.status === "ready") throw new Error("Open a new editable CV draft before retrying AI.");
+      db.prepare("UPDATE cv_imports SET status='enhancing',message='Queued for another extraction attempt.' WHERE id=?").run(value.id);
+      return { draftId: value.id, revision: value.revision };
+    },
     async run(input,context){
       const row=draft(input.draftId);if(!row||row.status==="ready"||row.revision!==input.revision)throw new Error("CV changed; open a new draft rather than overwriting reviewed edits.");
       db.prepare("UPDATE cv_imports SET status='enhancing',message='AI queued/running; your edits take priority.' WHERE id=?").run(row.id);
@@ -85,8 +91,6 @@ export async function cvRoutes(app: FastifyInstance) {
   });
   app.put<{ Params: { id: string } }>("/cv/drafts/:id", async (req, reply) => {
     const id = Number(req.params.id), input = EditedFacts.parse(req.body);
-    // Stop active AI only after validating that this is not a stale edit.
-    if (draft(id)?.revision === input.revision) cancelSubject("cv_enhance",String(id));
     const result = db.transaction(() => {
       const row = draft(id);
       if (!row) return { error: "Draft not found.", status: 404 };
@@ -97,7 +101,10 @@ export async function cvRoutes(app: FastifyInstance) {
       db.prepare("UPDATE cv_imports SET facts_json=?,status='ready',message='Reviewed CV saved for matching and documents.',revision=revision+1,published_cv_id=? WHERE id=?").run(factJson, Number(inserted.lastInsertRowid), id);
       return { value: encodeDraft(draft(id)!) };
     })();
-    return result.error ? reply.code(result.status!).send({ error: result.error }) : result.value;
+    // Publish first, then cancel. Cancelling a queued task synchronously invokes its
+    // settlement handler; doing that before the transaction could invalidate this save.
+    if (!result.error) cancelSubject("cv_enhance", String(id));
+    return result.error ? reply.code(result.status!).send({ error: result.error }) : encodeDraft(draft(id)!);
   });
   app.post("/cv/current/merge-profile", async (request, reply) => {
     const input = MergeInput.parse(request.body), row = current();

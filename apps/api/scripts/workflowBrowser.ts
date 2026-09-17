@@ -1,0 +1,40 @@
+/** Real React + Fastify integration, synthetic records and source adapters only. */
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import http from "node:http";
+import {chromium} from "playwright";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),"applylite-journey-"));
+process.env.DATABASE_PATH=path.join(temp,"test.db");process.env.STORAGE_PATH=path.join(temp,"storage");process.env.APPLYLITE_TEST_MODE="true";process.env.AI_MODE="local_only";
+const {db,initializeDatabase}=await import("../src/db/database.js");initializeDatabase();
+const {cvRoutes}=await import("../src/routes/cv.js");const {profileRoutes}=await import("../src/routes/profile.js");const {onboardingRoutes}=await import("../src/routes/onboarding.js");const {taskRoutes}=await import("../src/routes/tasks.js");const {discoveryRoutes}=await import("../src/routes/discovery.js");const {stopTaskWorker}=await import("../src/services/tasks.js");const {rememberDiscoverySourceFromUrl}=await import("../src/services/discovery.js");
+let sourceCalls=0;
+const posting=(id:string,title:string,description:string)=>({title,company:"Fixture Employer",location:"Ireland",salaryText:"",description,sourceUrl:`https://jobs.lever.co/fixture/${id}`,ats:"lever" as const,evidence:{requestedUrl:"",finalUrl:`https://jobs.lever.co/fixture/${id}`,ats:"lever",pageTitle:title,heading:title,metaDescription:"",bodyText:description,jobPostingJsonLd:"{}"}});
+const api=Fastify();await api.register(cors,{origin:true,methods:["GET","POST","PUT","PATCH","DELETE","OPTIONS"]});await api.register(multipart);await api.register(cvRoutes);await api.register(profileRoutes);await api.register(onboardingRoutes);await api.register(taskRoutes);
+await api.register(discoveryRoutes,{dependencies:{fetchSource:async()=>{sourceCalls++;await new Promise(r=>setTimeout(r,1600));return [posting("1","Frontend Developer","Build accessible React interfaces and test components for customers."),posting("2","Senior Nurse","Provide nursing care and clinical support to hospital patients. Professional registration required.")];}}});
+rememberDiscoverySourceFromUrl("https://jobs.lever.co/fixture","Synthetic employer");
+api.get("/experience/summary",async()=>({totalYears:0,technicalYears:0,parseableEmploymentCount:0}));api.get("/automation/mappings",async()=>[]);
+await api.listen({port:4310,host:"127.0.0.1"});
+const build=path.resolve(process.cwd(),"../web/dist");const server=http.createServer((req,res)=>{const url=new URL(req.url||"/","http://localhost");let file=path.resolve(build,`.${url.pathname}`);if(!path.extname(url.pathname))file=path.join(build,"index.html");if(!file.startsWith(build+path.sep)||!fs.existsSync(file)||!fs.statSync(file).isFile()){res.writeHead(404);res.end();return;}res.setHeader("Content-Type",({".html":"text/html",".js":"text/javascript",".css":"text/css"} as Record<string,string>)[path.extname(file)]||"application/octet-stream");res.end(fs.readFileSync(file));});
+await new Promise<void>(r=>server.listen(0,"127.0.0.1",r));const base=`http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}`;
+const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_EXECUTABLE_PATH||undefined});const context=await browser.newContext({viewport:{width:1366,height:900},reducedMotion:"reduce"});let page=await context.newPage();const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));const artifacts=path.resolve(process.cwd(),"../../.test-artifacts");fs.mkdirSync(artifacts,{recursive:true});
+try{
+ await page.goto(base+"/cv");await page.getByRole("heading",{name:"CV intelligence",exact:true}).waitFor();await page.reload();await page.getByRole("heading",{name:"CV intelligence",exact:true}).waitFor();
+ await page.getByLabel("Full source text",{exact:true}).fill("Example Person\nEmail: user@example.invalid\nLocation: Dublin, Ireland\nSkills\nReact, TypeScript\nWork History\nFrontend Developer\nExample Ltd\n- Built responsive React interfaces.\nEducation\nBSc Computing\nExample University\n2018 - 2021");await page.getByRole("button",{name:"Import text",exact:true}).click();
+ await page.getByRole("heading",{name:"Review and edit facts",exact:true}).waitFor();await page.waitForFunction(()=>document.activeElement?.id.startsWith("cv-field-")===true);assert.equal(await page.getByLabel("Employer",{exact:true}).inputValue(),"Example Ltd");assert.equal(await page.getByLabel("Qualification",{exact:true}).inputValue(),"BSc Computing");
+ await page.screenshot({path:path.join(artifacts,"workflow-cv.png"),fullPage:true});await page.getByRole("button",{name:"Save reviewed facts",exact:true}).click();await page.getByRole("button",{name:"Merge reviewed facts into Profile",exact:true}).click();await page.getByRole("heading",{name:"Candidate profile",exact:true}).waitFor();
+ assert.equal(await page.getByLabel("Target titles",{exact:true}).inputValue(),"");await page.getByRole("checkbox",{name:/Frontend Developer/}).first().check();await page.getByRole("button",{name:"Use selected suggestions",exact:true}).click();
+ assert.deepEqual(JSON.parse((db.prepare("SELECT data_json FROM profile WHERE id=1").get() as any).data_json).targetTitles,[]);
+ await page.getByLabel("Preferred locations",{exact:true}).fill("Ireland, Remote");await page.getByRole("button",{name:"Save profile",exact:true}).click();await page.getByText("Profile saved locally.",{exact:true}).waitFor();
+ await page.getByRole("button",{name:"Discover",exact:true}).click();await page.getByRole("heading",{name:"Find jobs for me",exact:true}).waitFor();await page.goBack();await page.getByRole("heading",{name:"Candidate profile",exact:true}).waitFor();await page.goForward();await page.getByRole("heading",{name:"Find jobs for me",exact:true}).waitFor();await page.reload();await page.getByRole("heading",{name:"Find jobs for me",exact:true}).waitFor();
+ await page.getByRole("button",{name:"Find jobs now",exact:true}).click();await page.waitForURL(/task=/);const runUrl=page.url();await page.getByRole("button",{name:"Profile",exact:true}).click();await page.reload();await page.getByRole("heading",{name:"Candidate profile",exact:true}).waitFor();await page.close();
+ page=await context.newPage();page.on("pageerror",e=>errors.push(e.message));await page.goto(runUrl);await page.getByRole("heading",{name:"2 jobs collected",exact:true}).waitFor({timeout:20000});
+ assert.equal(await page.locator(".broad-job-card").count(),2);assert.equal(sourceCalls,1);await page.getByRole("checkbox",{name:"Strict target-title match",exact:true}).check();await page.waitForFunction(()=>document.querySelectorAll(".broad-job-card").length===1);await page.reload();await page.waitForFunction(()=>document.querySelectorAll(".broad-job-card").length===1);assert.equal(sourceCalls,1);
+ await page.getByRole("button",{name:"Clear display filters",exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll(".broad-job-card").length===2);assert.ok((await page.locator(".score-kind").allTextContents()).every(s=>s.includes("Quick score")));await page.screenshot({path:path.join(artifacts,"workflow-discovery.png"),fullPage:true});
+ assert.equal(errors.length,0,errors.join("\n"));console.log("Workflow browser PASS: direct routes/refresh/history, missing-field focus, review/merge, explicit targets, background run after page close, saved task/results, persistent optional filters and quick-score labels.");
+}catch(e){console.error((await page.locator("body").innerText()).slice(-14000));await page.screenshot({path:path.join(artifacts,"workflow-failure.png"),fullPage:true});throw e;}
+finally{await browser.close();await stopTaskWorker();await api.close();await new Promise<void>(r=>server.close(()=>r()));db.close();fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

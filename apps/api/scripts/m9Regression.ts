@@ -36,7 +36,7 @@ const profile = ProfileSchema.parse({
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined });
   const page = await browser.newPage();
   await page.setContent(`<!doctype html>
     <html><head><title>ApplyLite M9 Mock Employer</title></head><body>
