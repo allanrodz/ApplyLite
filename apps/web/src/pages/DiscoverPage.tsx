@@ -8,6 +8,9 @@ type ResultJob = { id:number;title:string;company:string;location:string;sourceU
 type Results = {items:ResultJob[];counts:{all:number;strong:number;possible:number;stretch:number;notDeep:number};total:number;offset:number;limit:number;hasMore:boolean};
 const csv=(value:string)=>value.split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
 const blank:Results={items:[],counts:{all:0,strong:0,possible:0,stretch:0,notDeep:0},total:0,offset:0,limit:30,hasMore:false};
+const RESULT_CACHE_KEY="applylite:discovery-results-v2";
+function readCachedResults():Results|null{try{const value=JSON.parse(sessionStorage.getItem(RESULT_CACHE_KEY)||"null");return value?.url===window.location.pathname+window.location.search?value.results:null;}catch{return null;}}
+function writeCachedResults(results:Results){try{sessionStorage.setItem(RESULT_CACHE_KEY,JSON.stringify({url:window.location.pathname+window.location.search,results,at:Date.now()}));}catch{}}
 export function DiscoverPage(){
   const location=useLocation();
   const params=new URLSearchParams(window.location.search);
@@ -19,15 +22,19 @@ export function DiscoverPage(){
   const [broadIT,setBroadIT]=useState(false);
   const [task,setTask]=useState<Task|null>(null);
   const [deepTask,setDeepTask]=useState<Task|null>(null);
-  const [results,setResults]=useState<Results>(blank);
+  const cached=readCachedResults();
+  const [results,setResults]=useState<Results>(cached??blank);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
-  const [loaded,setLoaded]=useState(false);
+  const [loaded,setLoaded]=useState(Boolean(cached));
+  const [revalidating,setRevalidating]=useState(Boolean(cached));
   const [sourceUrl,setSourceUrl]=useState("");
   const [sourceName,setSourceName]=useState("");
   const [refreshKey,setRefreshKey]=useState(0);
   const refresh=()=>setRefreshKey(n=>n+1);
+
+  useEffect(()=>{sessionStorage.setItem("applylite:last-discovery-url",window.location.pathname+window.location.search);},[location]);
 
   useEffect(()=>{
     let alive=true;
@@ -43,6 +50,7 @@ export function DiscoverPage(){
     let alive=true,timer:number|undefined;const controller=new AbortController();
     const poll=async()=>{
       try{
+        setRevalidating(true);
         const query=new URLSearchParams(window.location.search),id=query.get("task");
         const current=await api<Task|null>(id?`/discovery/runs/${encodeURIComponent(id)}`:"/discovery/runs/latest",{signal:controller.signal});
         if(!alive)return;setTask(current);
@@ -51,11 +59,11 @@ export function DiscoverPage(){
         filters.delete("scope");
         if(runId && query.get("scope")==="run")filters.set("runId",String(runId));
         const result=await api<Results>(`/discovery/results?${filters}`,{signal:controller.signal});
-        if(!alive)return;setResults(result);setLoaded(true);
+        if(!alive)return;setResults(result);setLoaded(true);setRevalidating(false);writeCachedResults(result);
         let pendingDeep=false;
         if(deepTask?.id){const t=await api<Task>(`/tasks/${deepTask.id}`,{signal:controller.signal});if(!alive)return;setDeepTask(t);pendingDeep=taskActive(t);}
         if((current&&taskActive(current))||pendingDeep)timer=window.setTimeout(poll,2000);
-      }catch(e){if(alive){setError(e instanceof Error?e.message:"Could not load saved discovery status.");timer=window.setTimeout(poll,5000);}}
+      }catch(e){if(alive){setRevalidating(false);setError(e instanceof Error?e.message:"Could not load saved discovery status.");timer=window.setTimeout(poll,5000);}}
     };
     void poll();return()=>{alive=false;controller.abort();if(timer)window.clearTimeout(timer);};
   },[location,refreshKey,deepTask?.id]);
@@ -88,7 +96,7 @@ export function DiscoverPage(){
     {error&&<div role="alert" className="alert">{error}</div>}{notice&&<p role="status" className="notice">{notice}</p>}
     <section className="panel"><h2>Your search</h2><div className="form-grid"><label>Target roles or career terms<input value={titles} onChange={e=>setTitles(e.target.value)} placeholder="Your chosen roles, separated by commas"/></label><label>Search locations<input value={places} onChange={e=>setPlaces(e.target.value)} placeholder="Ireland, Remote, or your preferred places"/></label><label>Optional deep analyses per run<input type="number" min="0" max="20" value={analyses} onChange={e=>setAnalyses(Math.max(0,Math.min(20,Number(e.target.value)||0)))}/></label><label className="choice-row"><input type="checkbox" checked={broadIT} onChange={e=>setBroadIT(e.target.checked)}/><span>Also explore entry-level IT role families</span></label></div><p className="muted">Zero deep analyses gives a fully non-AI discovery run. Public searches use your terms, while employer feeds may include broader options. Collection limits and available source coverage still apply.</p></section>
     {task&&<TaskProgress task={task} onChange={refresh}/>} {deepTask&&<TaskProgress task={deepTask} onChange={next=>{if(next)setDeepTask(next);refresh();}}/>}
-    <section className="panel" id="discovery-results"><div className="panel-title"><div><span className="eyebrow">SAVED OPPORTUNITIES</span><h2>{results.counts.all} jobs collected</h2></div><button onClick={refresh}>Refresh saved results</button></div>
+    <section className="panel" id="discovery-results"><div className="panel-title"><div><span className="eyebrow">SAVED OPPORTUNITIES</span><h2>{results.counts.all} jobs collected</h2><small className="muted">{revalidating?"Showing cached results while refreshing…":"Results are loaded from saved local scores; expensive rescoring does not block this page."}</small></div><button onClick={refresh}>Refresh saved results</button></div>
       <div className="pipeline-tabs">{[["","All",results.counts.all],["strong","Strong",results.counts.strong],["possible","Possible",results.counts.possible],["stretch","Stretch",results.counts.stretch]].map(([key,label,n])=><button className={`pipeline-tab ${((params.get("band")||"")===key)?"active":""}`} key={String(key)} onClick={()=>filter("band",String(key))}>{label}<span>{n}</span></button>)}</div>
       <p>{results.total} currently match your display filters. {results.counts.notDeep} have no completed deep analysis. These counts overlap the fit bands.</p>
       <div className="discovery-filter-grid"><label>Results scope<select value={params.get("scope")||"all"} onChange={e=>filter("scope",e.target.value)}><option value="all">All saved discoveries</option><option value="run">This discovery run</option></select></label><label>Search saved results<input value={params.get("query")||""} onChange={e=>filter("query",e.target.value)}/></label><label>Minimum score<select value={params.get("minScore")||"0"} onChange={e=>filter("minScore",e.target.value)}><option value="0">Any score</option><option value="40">40+</option><option value="60">60+</option><option value="75">75+</option></select></label><label>Analysis<select value={params.get("analysis")||""} onChange={e=>filter("analysis",e.target.value)}><option value="">Any analysis</option><option value="quick">Not deeply analyzed</option><option value="deep">Deeply analyzed</option></select></label></div>

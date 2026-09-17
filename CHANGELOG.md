@@ -1,3 +1,12 @@
+# 0.16.2 - Fast saved views and background package alerts
+
+- Stop synchronous rescoring of every saved discovery job whenever Discover opens.
+- SQL-page common discovery views and preserve the last Discovery URL/results for instant cache-first navigation.
+- Make Dashboard request only focused/actioned jobs instead of loading the entire discovery inbox.
+- Run the main Generate application package action through the existing background preparation queue.
+- Add persistent cross-page package activity alerts with ready/failed actions and optional OS notification when already permitted.
+- Add a regression proving discovery reads are bounded/side-effect-free and Dashboard loads only focused jobs.
+
 # 0.16.1 - Discovery inbox and focused application workspace
 
 - Keep broad, potentially low-score discovery results on Discover instead of flooding Dashboard.

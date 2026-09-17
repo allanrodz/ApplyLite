@@ -41,15 +41,18 @@ function parseRequirements(value: string | undefined): JobRequirements {
   }
 }
 
-function serializeRows(useOutcomeLearning = true) {
+function serializeRows(useOutcomeLearning = true, workspaceOnly = false) {
   const profile = loadProfile();
   const facts = loadCandidateFacts();
   const outcomeModel = buildOutcomeLearningModel();
+  const workspaceWhere = workspaceOnly
+    ? "WHERE origin <> 'discovery' OR status IN ('FOCUSED', 'NOT_PURSUING') OR EXISTS (SELECT 1 FROM applications a WHERE a.job_id = jobs.id)"
+    : "";
   const rows = db.prepare(`
     SELECT id, source_url AS sourceUrl, title, company, location, salary_text AS salaryText,
            description, score, score_json AS scoreJson, analysis_json AS analysisJson,
            ats, origin, status, created_at AS createdAt, score_kind AS scoreKind, analysis_status AS analysisStatus
-    FROM jobs ORDER BY score DESC, created_at DESC
+    FROM jobs ${workspaceWhere} ORDER BY score DESC, created_at DESC
   `).all() as Array<Record<string, unknown> & { scoreJson: string; analysisJson: string; id: number }>;
 
   return rows.map((row) => {
@@ -74,9 +77,10 @@ function serializeRows(useOutcomeLearning = true) {
 }
 
 export async function jobRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { learned?: string } }>("/jobs", async (request) => {
+  app.get<{ Querystring: { learned?: string; workspace?: string } }>("/jobs", async (request) => {
     const useOutcomeLearning = request.query.learned !== "0" && request.query.learned !== "false";
-    return serializeRows(useOutcomeLearning);
+    const workspaceOnly = request.query.workspace === "1" || request.query.workspace === "true";
+    return serializeRows(useOutcomeLearning, workspaceOnly);
   });
 
   app.post("/jobs", async (request, reply) => {

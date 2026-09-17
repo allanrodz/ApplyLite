@@ -2,6 +2,7 @@ import {ActivityCentre} from "./components/TaskProgress";
 import { useEffect } from "react";
 import { useLocation, viewFromPath, navigate, guideTo, type View } from "./lib/navigation";
 import { GettingStarted } from "./components/GettingStarted";
+import { PackageNotifications } from "./components/PackageNotifications";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AnswersPage } from "./pages/AnswersPage";
@@ -19,17 +20,24 @@ import { GmailPage } from "./pages/GmailPage";
 export function App() {
   const location = useLocation();
   const view = viewFromPath(window.location.pathname);
-  const setView = (value: View) => navigate(value === "dashboard" ? "/" : `/${value}`);
+  const setView = (value: View) => {
+    if (value === "discover") {
+      navigate(sessionStorage.getItem("applylite:last-discovery-url") || "/discover");
+      return;
+    }
+    navigate(value === "dashboard" ? "/" : `/${value}`);
+  };
   useEffect(() => { if (window.location.hash) guideTo(window.location.hash.slice(1)); }, [location]);
 
   return (
     <div className="shell">
+      <PackageNotifications />
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">A</div>
           <div>
             <strong>ApplyLite</strong>
-            <span>local job copilot - v0.16.0</span>
+            <span>local job copilot - v0.16.2</span>
           </div>
         </div>
 

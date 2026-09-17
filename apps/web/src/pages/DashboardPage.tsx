@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ApplicationPackage, ApplicationTrackerOverview, BrowserSessionResult, JobInput, JobRequirements, ScoreBreakdown } from "@apply-lite/shared";
 import { API_BASE, api } from "../lib/api";
 import { navigate } from "../lib/navigation";
+import { watchPackageGeneration } from "../components/PackageNotifications";
 
 type Job = JobInput & {
   id: number;
@@ -93,7 +94,7 @@ export function DashboardPage() {
 
   async function refresh(learned = useOutcomeLearning) {
     const [jobRows, applicationRows, trackerRows] = await Promise.all([
-      api<Job[]>(`/jobs?learned=${learned ? "1" : "0"}`),
+      api<Job[]>(`/jobs?workspace=1&learned=${learned ? "1" : "0"}`),
       api<Application[]>("/applications"),
       api<ApplicationTrackerOverview>("/tracker/overview")
     ]);
@@ -274,36 +275,21 @@ export function DashboardPage() {
     }
   }
 
-  async function queueM7Preparation(jobId: number) {
-    setPackageLoading(true);
-    setError("");
-    setNotice("Queueing this job for M7 background application preparation...");
-    try {
-      const result = await api<{ queued: boolean; reason?: string }>(`/application-prep/jobs/${jobId}/queue`, { method: "POST", body: "{}" });
-      setNotice(result.queued ? "Queued for M7. The Review Queue will update while Qwen prepares and audits the package." : (result.reason ?? "This job is already in the M7 queue."));
-      await refresh();
-    } catch (e) {
-      setNotice("");
-      setError(e instanceof Error ? e.message : "Could not queue this job for M7 preparation");
-    } finally {
-      setPackageLoading(false);
-    }
-  }
-
   async function generatePackage(jobId: number) {
     setPackageLoading(true);
     setError("");
-    setNotice("Generating an evidence-grounded CV, cover letter, screening drafts, and factual audit with local Qwen3...");
+    setNotice("Starting package generation in the background...");
     try {
-      const generated = await api<ApplicationPackage>(`/jobs/${jobId}/generate-package`, { method: "POST", body: "{}" });
-      setApplicationPackage(generated);
-      setNotice(generated.generation.readyToUse
-        ? `Application package generated. Evidence audit: ${generated.status}. Review it before using any document.`
-        : "Package generated in fallback mode because local AI could not complete a core document. ApplyLite will not auto-upload it; regenerate after Ollama is healthy.");
-      await refresh();
+      const result = await api<{ queued: boolean; id?: number; reason?: string }>(`/application-prep/jobs/${jobId}/queue`, { method: "POST", body: "{}" });
+      if (result.id && selected) {
+        watchPackageGeneration({ id: result.id, jobId, title: selected.title, company: selected.company });
+      }
+      setNotice(result.queued
+        ? "Package generation started in the background. Go browse other opportunities — ApplyLite will alert you when the tailored CV and cover letter are ready."
+        : (result.reason ?? "This package is already queued or ready. ApplyLite will keep watching it."));
     } catch (e) {
       setNotice("");
-      setError(e instanceof Error ? e.message : "Could not generate application package");
+      setError(e instanceof Error ? e.message : "Could not start background application package generation");
     } finally {
       setPackageLoading(false);
     }
@@ -627,7 +613,7 @@ export function DashboardPage() {
                 <div><span className="eyebrow">M3 APPLICATION PACKAGE</span><h3>Evidence-grounded application</h3></div>
                 {applicationPackage && <span className={`audit-pill ${applicationPackage.status.toLowerCase()}`}>{applicationPackage.status === "PASS" ? "Audit passed" : "Review flags"}</span>}
               </div>
-              <p className="muted">Qwen selects verified CV evidence for the resume, drafts the letter and screening responses, then a second pass audits generated factual claims.</p>
+              <p className="muted">Package generation runs in the background. Start it, keep browsing other jobs, and ApplyLite will alert you when the tailored CV and cover letter are ready to review.</p>
               {applicationPackage && !applicationPackage.generation.readyToUse && (
                 <div className="package-degraded">
                   <strong>PACKAGE DEGRADED · REVIEW REQUIRED</strong>
@@ -650,9 +636,7 @@ export function DashboardPage() {
                 <button className="primary package-generate" onClick={() => generatePackage(selected.id)} disabled={packageLoading}>
                   {packageLoading ? "Working..." : applicationPackage ? "Regenerate package" : "Generate application package"}
                 </button>
-                {!applicationPackage && (
-                  <button onClick={() => queueM7Preparation(selected.id)} disabled={packageLoading}>Queue background prep</button>
-                )}
+                <button onClick={() => navigate("/discover")}>Browse more jobs</button>
               </div>
 
               {applicationPackage && (

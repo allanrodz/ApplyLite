@@ -188,6 +188,23 @@ export function listApplicationPrepQueue(limit = 50) {
   return rows.map(serializeQueueRow);
 }
 
+export function getApplicationPrepItem(id: number) {
+  const row = db.prepare(`
+    SELECT q.id, q.job_id AS jobId, q.brief_id AS briefId, q.brief_item_id AS briefItemId,
+           q.source, q.status, q.score_snapshot AS scoreSnapshot, q.application_id AS applicationId,
+           q.package_id AS packageId, q.audit_status AS auditStatus, q.error_message AS errorMessage,
+           q.queued_at AS queuedAt, q.started_at AS startedAt, q.completed_at AS completedAt,
+           q.updated_at AS updatedAt,
+           j.title, j.company, j.location, j.source_url AS sourceUrl, j.ats,
+           a.state AS applicationState
+    FROM application_prep_queue q
+    JOIN jobs j ON j.id = q.job_id
+    LEFT JOIN applications a ON a.id = q.application_id
+    WHERE q.id = ?
+  `).get(id) as Record<string, unknown> | undefined;
+  return row ? serializeQueueRow(row) : null;
+}
+
 export function getApplicationPrepStatus(): ApplicationPrepStatus {
   const counts = db.prepare(`
     SELECT

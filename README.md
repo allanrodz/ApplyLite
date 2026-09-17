@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.1.** Discovery is now the broad inbox and Dashboard is the focused application workspace. The normal installer below follows `main`; this branch is for review until merged.
+**Release candidate: 0.16.2.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
@@ -38,7 +38,7 @@ The updater stages and checks code before replacement, preserves standard and le
 6. Open **Discover**. The default is **zero AI analyses**: fetch, deduplicate, quick-score and save jobs. Choose a bounded number of deep analyses when useful.
 7. Browse all saved discoveries or this run. Filter by score, title alignment, seniority, location, remote arrangement or analysis status without searching again. Discovery is intentionally broad and may contain many low-score possibilities.
 8. For a role you may actually pursue, choose **Move to Dashboard**. Discovery keeps the broad market separate from your focused application workspace.
-9. In **Dashboard**, generate/review the tailored CV and cover letter, then open the employer form for assisted filling. ApplyLite never clicks the employer's final Submit control.
+9. In **Dashboard**, start package generation. It runs in the background, so you can return to Discover and keep comparing jobs. A persistent in-app alert appears when the tailored CV and cover letter are ready (and a system notification is used if the browser already has notification permission). Review the package, then open the employer form for assisted filling. ApplyLite never clicks the employer's final Submit control.
 
 The application remains one person's local workspace. Each friend should use their own installation and data; it is not a hosted multi-user service.
 
