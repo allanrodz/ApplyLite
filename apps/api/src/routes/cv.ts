@@ -1,3 +1,4 @@
+import { registerTaskHandler,enqueueTask,latestTask,cancelSubject } from "../services/tasks.js";
 import { safeAiError } from "../services/aiProvider.js";
 import { cvDiagnostics } from "../services/cvParsing.js";
 import { writeSetting } from "../services/onboarding.js";
@@ -20,8 +21,8 @@ type DraftRow = CvRow & { status: string; message: string; revision: number; pub
 const current = () => db.prepare("SELECT * FROM cv_documents ORDER BY id DESC LIMIT 1").get() as CvRow | undefined;
 const draft = (id: number) => db.prepare("SELECT * FROM cv_imports WHERE id=?").get(id) as DraftRow | undefined;
 const encode = (row: CvRow) => ({ id: row.id, sourceName: row.source_name, sourceType: row.source_type, rawText: row.raw_text, facts: CandidateFactsSchema.parse(JSON.parse(row.facts_json)), createdAt: row.created_at });
-const encodeDraft = (row: DraftRow) => ({ ...encode(row), status: row.status, message: row.message, revision: row.revision, publishedCvId: row.published_cv_id, diagnostics: cvDiagnostics(encode(row).facts) });
-let active: number | null = null;
+const encodeDraft = (row: DraftRow) => ({ ...encode(row), status: row.status, message: row.message, revision: row.revision, publishedCvId: row.published_cv_id, task: latestTask("cv_enhance",String(row.id)), diagnostics: cvDiagnostics(encode(row).facts) });
+
 function saveDraft(name: string, type: string, text: string, facts = localDraft(text)) {
   const result = db.prepare("INSERT INTO cv_imports(source_name,source_type,raw_text,facts_json,status,message) VALUES(?,?,?,?,'draft','Review the local draft, or use optional AI enhancement.')").run(name, type, text, JSON.stringify(facts));
   return encodeDraft(draft(Number(result.lastInsertRowid))!);
@@ -62,36 +63,30 @@ export async function cvRoutes(app: FastifyInstance) {
     request.log.info({ draftId: result.id, chars: text.length }, "CV draft saved without waiting for AI");
     return reply.code(201).send(result);
   });
-  app.post<{ Params: { id: string } }>("/cv/drafts/:id/enhance", async (req, reply) => {
-    const row = draft(Number(req.params.id));
-    if (!row) return reply.code(404).send({ error: "Draft not found." });
-    if (active !== null) return reply.code(409).send({ error: "Another CV enhancement is running. Your draft can still be edited and saved." });
-    if (row.status === "ready") return reply.code(409).send({ error: "This CV is reviewed. Edit it directly or import it again as a new AI draft." });
-    if (row.raw_text.length > 30_000) return reply.code(422).send({ error: "Optional AI enhancement supports 30,000 characters. Your full source is saved and editable without AI." });
-    active = row.id;
-    db.prepare("UPDATE cv_imports SET status='enhancing',message='Optional AI is running. You may edit and save; AI will not overwrite a manual save.' WHERE id=?").run(row.id);
-    const run = async () => {
-      let facts = CandidateFactsSchema.parse(JSON.parse(row.facts_json));
-      let sections = 0;
-      try {
-        await enhanceDraft(row.raw_text, extra => {
-          facts = mergeFacts(facts, extra); sections++;
-          const result = db.prepare("UPDATE cv_imports SET facts_json=?,message=? WHERE id=? AND revision=? AND status='enhancing'")
-            .run(JSON.stringify(facts), `Processed ${sections} source section(s). Review the final draft before using it.`, row.id, row.revision);
-          return result.changes > 0;
-        });
-        db.prepare("UPDATE cv_imports SET status='needs_review',message='AI draft ready. Check completeness, grouping and dates.',revision=revision+1 WHERE id=? AND revision=? AND status='enhancing'").run(row.id, row.revision);
-      } catch (cause) {
-        const error=safeAiError(cause);
-        db.prepare("UPDATE cv_imports SET status='needs_review',message=?,revision=revision+1 WHERE id=? AND revision=? AND status='enhancing'").run(`${error.code}: ${error.message} Your saved draft is safe.`, row.id, row.revision);
-        req.log.warn({ draftId: row.id }, "Optional AI enhancement failed; draft retained");
-      } finally { active = null; }
-    };
-    setImmediate(() => { void run(); });
+  registerTaskHandler("cv_enhance",{
+    async run(input,context){
+      const row=draft(input.draftId);if(!row||row.status==="ready"||row.revision!==input.revision)throw new Error("CV changed; open a new draft rather than overwriting reviewed edits.");
+      db.prepare("UPDATE cv_imports SET status='enhancing',message='AI queued/running; your edits take priority.' WHERE id=?").run(row.id);
+      let facts=CandidateFactsSchema.parse(JSON.parse(row.facts_json));
+      await enhanceDraft(row.raw_text,extra=>{context.checkpoint();facts=mergeFacts(facts,extra);return db.prepare("UPDATE cv_imports SET facts_json=? WHERE id=? AND revision=? AND status='enhancing'").run(JSON.stringify(facts),row.id,row.revision).changes>0;},{signal:context.signal,onProgress:(done,total,phase)=>context.progress("EXTRACTING",{sectionsDone:done,sectionsTotal:total},phase)});
+      return{draftId:row.id};
+    },
+    settled(input,task){
+      const message=task.status==="COMPLETED"?"AI sections extracted. Review completeness, grouping and dates.":`${task.error?.code||task.status}: ${task.error?.message||task.message} Your source and edits are safe.`;
+      db.prepare("UPDATE cv_imports SET status='needs_review',message=?,revision=revision+1 WHERE id=? AND revision=? AND status='enhancing'").run(message,input.draftId,input.revision);
+    }
+  });
+  app.post<{ Params: { id: string } }>("/cv/drafts/:id/enhance", async (req,reply)=>{
+    const row=draft(Number(req.params.id));if(!row)return reply.code(404).send({error:"Draft not found."});
+    if(row.status==="ready")return reply.code(409).send({error:"This CV is reviewed. Open it as a new editable draft first."});
+    db.prepare("UPDATE cv_imports SET status='enhancing',message='Queued for AI extraction; you can leave this page.' WHERE id=?").run(row.id);
+    enqueueTask("cv_enhance",String(row.id),{draftId:row.id,revision:row.revision});
     return reply.code(202).send(encodeDraft(draft(row.id)!));
   });
   app.put<{ Params: { id: string } }>("/cv/drafts/:id", async (req, reply) => {
     const id = Number(req.params.id), input = EditedFacts.parse(req.body);
+    // Stop active AI only after validating that this is not a stale edit.
+    if (draft(id)?.revision === input.revision) cancelSubject("cv_enhance",String(id));
     const result = db.transaction(() => {
       const row = draft(id);
       if (!row) return { error: "Draft not found.", status: 404 };

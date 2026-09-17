@@ -1,3 +1,4 @@
+import { taskSignal } from "./taskContext.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +70,7 @@ export class GroqProvider implements AiProvider {
 }
 export const providers={ollama:new OllamaProvider(),groq:new GroqProvider()};
 async function dispatch<T>(run:(provider:AiProvider,options:AiOptions)=>Promise<T>,options:AiOptions){
+ options={...options,signal:options.signal||taskSignal()};
  const mode=aiPreferences().mode;const order=mode==="local_only"?["ollama"]:mode==="cloud_preferred"?["groq","ollama"]:["ollama","groq"];
  const deadline=Date.now()+(options.timeoutMs??config.ollamaTimeoutMs);let last:AiError|undefined;
  for(let i=0;i<order.length;i++){const key=order[i] as keyof typeof providers;options.signal?.throwIfAborted();const remaining=deadline-Date.now();if(remaining<=0)throw last||new AiError("TIMEOUT","AI task deadline reached.",true);try{const value=await run(providers[key],{...options,timeoutMs:Math.max(1,Math.floor(remaining/(order.length-i)))});lastErrors.delete(key);return value;}catch(e){last=safeAiError(e);lastErrors.set(key,{code:last.code,message:last.message,at:new Date().toISOString()});if(options.signal?.aborted||last.code==="CANCELLED")throw last;}}

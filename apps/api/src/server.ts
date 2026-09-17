@@ -1,3 +1,5 @@
+import {taskRoutes} from "./routes/tasks.js";
+import {startTaskWorker,stopTaskWorker} from "./services/tasks.js";
 import { onboardingRoutes } from "./routes/onboarding.js";
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
@@ -57,6 +59,7 @@ await app.register(multipart, {
 app.get("/health", async () => ({ ok: true, service: "apply-lite-api", version: config.version }));
 await app.register(profileRoutes);
 await app.register(onboardingRoutes);
+await app.register(taskRoutes);
 await app.register(answerRoutes);
 await app.register(jobRoutes);
 await app.register(aiRoutes);
@@ -89,6 +92,7 @@ app.addHook("onClose", async () => {
   stopDailyDiscoveryScheduler?.();
   stopApplicationPrepWorker?.();
   stopGmailSyncScheduler?.();
+  await stopTaskWorker();
   await closeAllApplicationBrowsers();
 });
 
@@ -102,6 +106,7 @@ process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
 await app.listen({ port: config.port, host: "127.0.0.1" });
+startTaskWorker();
 stopDailyDiscoveryScheduler = startDailyDiscoveryScheduler(app.log);
 stopApplicationPrepWorker = startApplicationPrepWorker(app.log);
 stopGmailSyncScheduler = startGmailSyncScheduler(app.log);

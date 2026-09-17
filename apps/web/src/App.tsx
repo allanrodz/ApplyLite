@@ -1,3 +1,4 @@
+import {ActivityCentre} from "./components/TaskProgress";
 import { useEffect } from "react";
 import { useLocation, viewFromPath, navigate, guideTo, type View } from "./lib/navigation";
 import { GettingStarted } from "./components/GettingStarted";
@@ -48,6 +49,7 @@ export function App() {
           <button className={view === "system" ? "active" : ""} onClick={() => setView("system")}>System & Recovery</button>
         </nav>
 
+        <ActivityCentre />
         <div className="safety-note">
           <strong>Review mode</strong>
           <span>Review every extracted fact and employer form. You control final submission.</span>

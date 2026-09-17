@@ -1,8 +1,9 @@
+import {TaskProgress,type Task} from "../components/TaskProgress";
 import { guideTo, navigate } from "../lib/navigation";
 import { useEffect, useRef, useState } from "react";
 import { CandidateFactsSchema, type CandidateFacts, type CvDocument } from "@apply-lite/shared";
 import { api } from "../lib/api";
-type Draft = CvDocument & { status: string; message: string; revision: number; publishedCvId: number | null; diagnostics?: {missingFields:{path:string;label:string;message:string}[]; dates:{start:{raw:string;normalized:string|null;precision:string};end:{raw:string;normalized:string|null;precision:string}}[]} };
+type Draft = CvDocument & { status: string; message: string; revision: number; publishedCvId: number | null; task?:Task|null; diagnostics?: {missingFields:{path:string;label:string;message:string}[]; dates:{start:{raw:string;normalized:string|null;precision:string};end:{raw:string;normalized:string|null;precision:string}}[]} };
 const groups = [
   { key: "employment", label: "Employment", fields: ["title", "employer", "startDate", "endDate", "location", "bullets"] },
   { key: "education", label: "Education", fields: ["qualification", "institution", "field", "startDate", "endDate", "details"] },
@@ -32,9 +33,10 @@ export function CvPage() {
         const update = await api<Draft>(`/cv/drafts/${draft.id}`);
         if (cancelled) return;
         if (!dirty.current) show(update);
+        else if (update.status === "enhancing") setDraft(old=>old?{...old,task:update.task,message:update.message}:old);
         else if (update.status === "needs_review") {
           // Only the AI draft changed; the user's visible edits intentionally retain priority.
-          setDraft(update); setNotice("AI finished. Your edits are still shown and will take priority when you save reviewed facts.");
+          setDraft(update); setNotice("AI processing stopped. Your edits are still shown and will take priority when you save reviewed facts.");
         } else if (update.status === "ready") {
           setDraft(old => old ? { ...old, status: "ready", message: "This CV was saved elsewhere. Reload before saving your changes." } : old);
         }
@@ -69,7 +71,7 @@ export function CvPage() {
     <section className="cv-import-grid"><form className="panel" onSubmit={upload}><h2>Upload a CV</h2><p>PDF with selectable text, DOCX, TXT or Markdown; maximum 10 MB. Image-only PDFs need a text export or pasted text.</p><label>CV file<input type="file" accept=".pdf,.docx,.txt,.md" disabled={busy} onChange={e => setFile(e.target.files?.[0] ?? null)} /></label><button className="primary" disabled={busy || !file}>{busy ? "Working..." : "Import CV"}</button></form>
       <section className="panel"><h2>Paste CV text</h2><label>Full source text<textarea rows={6} value={text} onChange={e => setText(e.target.value)} /></label><button disabled={busy || text.trim().length < 80} onClick={() => void operation(async () => { show(await api<Draft>("/cv/import-text", { method: "POST", body: JSON.stringify({ text }) })); guideTo("cv-review"); setText(""); setNotice("Text imported without AI. Review it below."); })}>Import text</button></section></section>
     {draft && facts && <>
-      <section className="panel"><h2>{draft.sourceName}</h2><p><strong>{draft.status}</strong> - {draft.message}</p><p>{draft.rawText.length.toLocaleString()} source characters saved. Unknown fields may be blank; complete them manually or request AI enhancement.</p>
+      <section className="panel"><h2>{draft.sourceName}</h2>{draft.task && <TaskProgress task={draft.task} onChange={()=>void operation(load)}/>}<p><strong>{draft.status}</strong> - {draft.message}</p><p>{draft.rawText.length.toLocaleString()} source characters saved. Unknown fields may be blank; complete them manually or request AI enhancement.</p>
         <div className="actions"><button disabled={busy || edited || draft.status === "ready" || draft.status === "enhancing"} onClick={() => void operation(async () => { show(await api<Draft>(`/cv/drafts/${draft.id}/enhance`, { method: "POST", body: "{}" })); setNotice("Enhancement started separately from the upload. Your source stays safe if AI is unavailable."); })}>Enhance draft with local AI (optional)</button>
           <button disabled={busy} onClick={() => { if (!edited || window.confirm("Discard unsaved edits and reload the saved draft?")) void operation(load); }}>Reload saved draft</button></div>
         <details><summary>Full extracted source text</summary><textarea aria-label="Full source text" rows={14} value={draft.rawText} readOnly /></details>
