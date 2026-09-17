@@ -11,6 +11,8 @@ type Job = JobInput & {
   scoreBreakdown: ScoreBreakdown;
   createdAt: string;
   origin?: string;
+  scoreKind?: string;
+  analysisStatus?: string;
 };
 
 type Application = {
@@ -494,7 +496,7 @@ export function DashboardPage() {
             <article className={`job-row ${bucket === "CLOSED" ? "job-row-closed" : ""}`} key={job.id}>
               <ScoreBadge score={job.score} />
               <button className="job-main" onClick={() => setSelected(job)}>
-                <strong>{job.title}</strong>
+                <strong>{job.title}</strong><small>{job.scoreKind === "quick" ? "Quick score (provisional)" : job.scoreKind === "deep" ? "AI-analyzed; review requirements" : "Previous score"}{job.analysisStatus === "failed" ? " - deep analysis needs retry" : ""}</small>
                 <span>{job.company} · {job.location || "Location not specified"} · {job.ats || "manual"}</span>
                 <small>{job.scoreBreakdown.matchedRequiredSkills?.slice(0, 5).join(" · ") || job.scoreBreakdown.matchedSkills.slice(0, 5).join(" · ") || "Open details for the evidence-backed fit analysis"}</small>
                 {job.scoreBreakdown.baseTotal !== undefined && job.scoreBreakdown.outcomeLearningActive && (job.scoreBreakdown.outcomeAdjustment ?? 0) !== 0 && (

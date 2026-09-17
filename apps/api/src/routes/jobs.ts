@@ -47,7 +47,7 @@ function serializeRows(useOutcomeLearning = true) {
   const rows = db.prepare(`
     SELECT id, source_url AS sourceUrl, title, company, location, salary_text AS salaryText,
            description, score, score_json AS scoreJson, analysis_json AS analysisJson,
-           ats, origin, status, created_at AS createdAt
+           ats, origin, status, created_at AS createdAt, score_kind AS scoreKind, analysis_status AS analysisStatus
     FROM jobs ORDER BY score DESC, created_at DESC
   `).all() as Array<Record<string, unknown> & { scoreJson: string; analysisJson: string; id: number }>;
 
