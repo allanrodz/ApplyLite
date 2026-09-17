@@ -1,0 +1,28 @@
+name: Workflow baseline snapshot
+on:
+  push:
+    branches: [feat/cv-discovery-workflow-v016]
+    paths: [.github/workflows/workflow-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          git archive HEAD -o baseline-source.zip
+          npm ci
+          tar -czf baseline-dependencies.tgz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workflow-baseline
+          path: |
+            baseline-source.zip
+            baseline-dependencies.tgz
+          retention-days: 1
