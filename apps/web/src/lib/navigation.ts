@@ -17,11 +17,20 @@ export function navigate(href: string, replace = false) {
 /** Run after an explicit user action, never on every polling update. */
 export function guideTo(id: string) {
   window.setTimeout(() => {
-    const el = document.getElementById(id); if (!el) return;
-    el.scrollIntoView({behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",block:"center"});
-    el.classList.add("next-step-highlight");
-    const focus = el.matches("input,textarea,select,button") ? el : el.querySelector<HTMLElement>("[aria-invalid=true],input,textarea,select,button") || el;
-    (focus as HTMLElement).focus({preventScroll:true});
-    window.setTimeout(() => el.classList.remove("next-step-highlight"), 2500);
+    const section = document.getElementById(id);
+    if (!section) return;
+    const controls = "input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled])";
+    // Selector alternatives follow document order, not priority. Check missing
+    // fields separately so a valid name field cannot steal the next-step focus.
+    const target = section.matches(controls) ? section
+      : section.querySelector<HTMLElement>('[aria-invalid="true"]:not([disabled])')
+        || section.querySelector<HTMLElement>(controls) || section;
+    target.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "center"
+    });
+    target.classList.add("next-step-highlight");
+    target.focus({ preventScroll: true });
+    window.setTimeout(() => target.classList.remove("next-step-highlight"), 2500);
   }, 80);
 }
