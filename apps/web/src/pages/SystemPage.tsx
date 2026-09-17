@@ -1,3 +1,4 @@
+import { AiSettings } from "../components/AiSettings";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE, api } from "../lib/api";
 

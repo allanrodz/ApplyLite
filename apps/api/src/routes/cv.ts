@@ -1,3 +1,4 @@
+import { safeAiError } from "../services/aiProvider.js";
 import { cvDiagnostics } from "../services/cvParsing.js";
 import { writeSetting } from "../services/onboarding.js";
 import fs from "node:fs";
@@ -80,8 +81,9 @@ export async function cvRoutes(app: FastifyInstance) {
           return result.changes > 0;
         });
         db.prepare("UPDATE cv_imports SET status='needs_review',message='AI draft ready. Check completeness, grouping and dates.',revision=revision+1 WHERE id=? AND revision=? AND status='enhancing'").run(row.id, row.revision);
-      } catch {
-        db.prepare("UPDATE cv_imports SET status='needs_review',message='AI could not finish. Your source and any extracted draft facts are safe. Edit and save them, or retry later.',revision=revision+1 WHERE id=? AND revision=? AND status='enhancing'").run(row.id, row.revision);
+      } catch (cause) {
+        const error=safeAiError(cause);
+        db.prepare("UPDATE cv_imports SET status='needs_review',message=?,revision=revision+1 WHERE id=? AND revision=? AND status='enhancing'").run(`${error.code}: ${error.message} Your saved draft is safe.`, row.id, row.revision);
         req.log.warn({ draftId: row.id }, "Optional AI enhancement failed; draft retained");
       } finally { active = null; }
     };

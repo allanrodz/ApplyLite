@@ -1,3 +1,4 @@
+import { askAiText,askAiStructured,aiPreferences } from "./aiProvider.js";
 import { spawn } from "node:child_process";
 import { config } from "../config.js";
 
@@ -154,6 +155,7 @@ function hasConfiguredModel(tags: OllamaTags) {
  * can download several gigabytes without the user's consent.
  */
 export async function ensureOllamaReady(): Promise<void> {
+  if (aiPreferences().mode !== "local_only" && aiPreferences().cloudConsent) return;
   let tags = await getTags();
 
   if (!tags && isLoopbackOllama()) {
@@ -180,81 +182,9 @@ export async function ensureOllamaReady(): Promise<void> {
   }
 }
 
-export async function askOllama(prompt: string): Promise<string> {
-  const timeoutMs = config.ollamaTimeoutMs;
-  try {
-    const response = await ollamaFetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: config.ollamaModel,
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-        think: false,
-        keep_alive: "10m",
-        options: { temperature: 0.2, num_predict: 2048 }
-      })
-    }, timeoutMs);
-
-    if (!response.ok) {
-      throw new Error(`Ollama request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json() as { message?: { content?: string } };
-    return data.message?.content?.trim() ?? "";
-  } catch (error) {
-    if (isTimeoutError(error)) throw new Error(timeoutMessage(timeoutMs));
-    throw error;
-  }
-}
-
-export async function askOllamaStructured<T>(
-  prompt: string,
-  format: object,
-  options: { numPredict?: number; numCtx?: number; timeoutMs?: number } = {}
-): Promise<T> {
-  const schemaText = JSON.stringify(format);
-  const groundedPrompt = `${prompt}\n\nOUTPUT REQUIREMENT:\nReturn ONLY JSON matching this JSON Schema exactly:\n${schemaText}`;
-  const timeoutMs = options.timeoutMs ?? config.ollamaTimeoutMs;
-
-  try {
-    const response = await ollamaFetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: config.ollamaModel,
-        messages: [{ role: "user", content: groundedPrompt }],
-        format,
-        stream: false,
-        think: false,
-        keep_alive: "10m",
-        options: {
-          temperature: 0,
-          num_predict: options.numPredict ?? 4096,
-          num_ctx: options.numCtx ?? 8192
-        }
-      })
-    }, timeoutMs);
-
-    if (!response.ok) {
-      const details = await response.text().catch(() => "");
-      throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${details ? ` - ${details.slice(0, 300)}` : ""}`);
-    }
-
-    const data = await response.json() as { message?: { content?: string } };
-    const content = data.message?.content?.trim();
-    if (!content) throw new Error("Ollama returned an empty structured response");
-
-    try {
-      return JSON.parse(content) as T;
-    } catch {
-      throw new Error("Ollama returned invalid JSON for structured extraction");
-    }
-  } catch (error) {
-    if (isTimeoutError(error)) throw new Error(timeoutMessage(timeoutMs));
-    throw error;
-  }
-}
+// Compatibility exports route existing features through the same consent-aware provider layer.
+export const askOllama = askAiText;
+export const askOllamaStructured = askAiStructured;
 
 export async function ollamaHealth(): Promise<boolean> {
   return Boolean(await getTags());
