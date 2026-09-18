@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ApplicationPackageGenerationSchema,
   ApplicationPackageSchema,
+  ApplicationPackageDetectionSchema,
   CandidateFactsSchema,
   CoverLetterSchema,
   EvidenceAuditSchema,
@@ -821,7 +822,7 @@ export function getLatestApplicationPackage(jobId: number): ApplicationPackage |
   const row = db.prepare(`SELECT id, job_id AS jobId, status, payload_json AS payloadJson, audit_json AS auditJson, created_at AS createdAt FROM application_packages WHERE job_id = ? ORDER BY id DESC LIMIT 1`)
     .get(jobId) as { id: number; jobId: number; status: "PASS" | "REVIEW"; payloadJson: string; auditJson: string; createdAt: string } | undefined;
   if (!row) return null;
-  const payload = JSON.parse(row.payloadJson) as { tailoredCv: TailoredCv; coverLetter: CoverLetter; screeningAnswers: ScreeningAnswer[]; generation?: unknown };
+  const payload = JSON.parse(row.payloadJson) as { tailoredCv: TailoredCv; coverLetter: CoverLetter; screeningAnswers: ScreeningAnswer[]; generation?: unknown; aiDetection?: unknown };
   const audit = EvidenceAuditSchema.parse(JSON.parse(row.auditJson));
   const generation = inferGenerationFromAudit(audit, payload.generation);
   return ApplicationPackageSchema.parse({
@@ -832,12 +833,30 @@ export function getLatestApplicationPackage(jobId: number): ApplicationPackage |
     coverLetter: payload.coverLetter,
     screeningAnswers: payload.screeningAnswers,
     generation,
+    aiDetection: ApplicationPackageDetectionSchema.parse(payload.aiDetection ?? {}),
     audit,
     artifacts: artifactRows(row.id),
     createdAt: row.createdAt
   });
 }
 
+
+export function saveApplicationPackageDetection(jobId: number, document: "cv" | "coverLetter", detection: unknown): ApplicationPackage {
+  const row = db.prepare(`SELECT id, payload_json AS payloadJson FROM application_packages WHERE job_id = ? ORDER BY id DESC LIMIT 1`)
+    .get(jobId) as { id: number; payloadJson: string } | undefined;
+  if (!row) throw new Error("Generate an application package before running an AI-content check.");
+
+  const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+  const current = ApplicationPackageDetectionSchema.parse(payload.aiDetection ?? {});
+  const next = ApplicationPackageDetectionSchema.parse({ ...current, [document]: detection });
+  payload.aiDetection = next;
+  db.prepare("UPDATE application_packages SET payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .run(JSON.stringify(payload), row.id);
+
+  const updated = getLatestApplicationPackage(jobId);
+  if (!updated) throw new Error("Application package could not be reloaded after the AI-content check.");
+  return updated;
+}
 
 export type DocumentRegenerationOptions = {
   document: "cv" | "coverLetter";
@@ -908,9 +927,11 @@ async function persistPackageVariant(
   coverLetter: CoverLetter,
   screeningAnswers: ScreeningAnswer[],
   generation: ApplicationPackageGeneration,
-  audit: EvidenceAudit
+  audit: EvidenceAudit,
+  aiDetection: unknown = {}
 ): Promise<ApplicationPackage> {
-  const payload = { tailoredCv, coverLetter, screeningAnswers, generation };
+  const detection = ApplicationPackageDetectionSchema.parse(aiDetection ?? {});
+  const payload = { tailoredCv, coverLetter, screeningAnswers, generation, aiDetection: detection };
   const result = db.prepare(`INSERT INTO application_packages (job_id, status, payload_json, audit_json) VALUES (?, ?, ?, ?)`)
     .run(jobId, audit.status, JSON.stringify(payload), JSON.stringify(audit));
   const packageId = Number(result.lastInsertRowid);
@@ -970,6 +991,7 @@ async function persistPackageVariant(
     coverLetter,
     screeningAnswers,
     generation,
+    aiDetection: detection,
     audit: finalAudit,
     artifacts: artifactRows(packageId),
     createdAt: new Date().toISOString()
@@ -1016,6 +1038,10 @@ export async function regenerateApplicationDocument(jobId: number, options: Docu
   if (audit.warnings.some((warning) => warning.startsWith("Semantic evidence audit could not complete:"))) failedStages.push("audit");
   const generation = packageGenerationFromFailures(failedStages);
 
+  const preservedDetection = options.document === "cv"
+    ? { coverLetter: previous.aiDetection.coverLetter }
+    : { cv: previous.aiDetection.cv };
+
   return persistPackageVariant(
     jobId,
     profile,
@@ -1026,7 +1052,8 @@ export async function regenerateApplicationDocument(jobId: number, options: Docu
     coverLetter,
     previous.screeningAnswers,
     generation,
-    audit
+    audit,
+    preservedDetection
   );
 }
 
@@ -1088,7 +1115,7 @@ export async function generateApplicationPackage(jobId: number): Promise<Applica
     });
   }
 
-  const initialPayload = { tailoredCv, coverLetter, screeningAnswers, generation };
+  const initialPayload = { tailoredCv, coverLetter, screeningAnswers, generation, aiDetection: {} };
   const result = db.prepare(`INSERT INTO application_packages (job_id, status, payload_json, audit_json) VALUES (?, ?, ?, ?)`)
     .run(jobId, audit.status, JSON.stringify(initialPayload), JSON.stringify(audit));
   const packageId = Number(result.lastInsertRowid);
@@ -1141,6 +1168,7 @@ export async function generateApplicationPackage(jobId: number): Promise<Applica
     coverLetter,
     screeningAnswers,
     generation,
+    aiDetection: {},
     audit,
     artifacts: artifactRows(packageId),
     createdAt: new Date().toISOString()
