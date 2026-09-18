@@ -976,3 +976,9 @@ textarea { resize: vertical; line-height: 1.5; }
 .dashboard-analysis-actions { margin: 14px 0 4px; display: grid; gap: 7px; padding: 12px; border: 1px solid #dfe5ed; border-radius: 11px; background: #fafbfd; }
 .dashboard-analysis-actions button { justify-self: start; }
 .dashboard-analysis-actions small { color: #758195; line-height: 1.45; }
+
+.score-confidence { font-weight: 800; }
+.score-confidence.quick { color: #b42318 !important; }
+.score-confidence.deep { color: #1f7a3e !important; }
+.score-confidence.previous { color: #7a8698 !important; }
+.drawer-confidence { margin: 8px 0 2px; font-size: 12px; line-height: 1.45; }
