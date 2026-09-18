@@ -25,6 +25,24 @@ export async function profileRoutes(app: FastifyInstance) {
     return { profile, added: !exists };
   });
 
+  app.delete("/profile/skills", async (request) => {
+    const { skill } = AddSkillSchema.parse(request.body ?? {});
+    const row = db.prepare("SELECT data_json FROM profile WHERE id = 1").get() as { data_json: string } | undefined;
+    const profile = row ? ProfileSchema.parse(JSON.parse(row.data_json)) : ProfileSchema.parse({});
+    const normalized = skill.toLowerCase();
+    const nextSkills = profile.skills.filter((value) => value.trim().toLowerCase() !== normalized);
+    const removed = nextSkills.length !== profile.skills.length;
+    if (removed) {
+      profile.skills = nextSkills;
+      db.prepare(`
+        INSERT INTO profile (id, data_json, updated_at)
+        VALUES (1, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json, updated_at = CURRENT_TIMESTAMP
+      `).run(JSON.stringify(profile));
+    }
+    return { profile, removed };
+  });
+
   app.put("/profile", async (request) => {
     const profile = ProfileSchema.parse(request.body);
     db.prepare(`
