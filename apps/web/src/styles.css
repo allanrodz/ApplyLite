@@ -982,3 +982,69 @@ textarea { resize: vertical; line-height: 1.5; }
 .score-confidence.deep { color: #1f7a3e !important; }
 .score-confidence.previous { color: #7a8698 !important; }
 .drawer-confidence { margin: 8px 0 2px; font-size: 12px; line-height: 1.45; }
+
+
+.update-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 18px;
+  background: #b42318;
+  border-bottom: 1px solid #8f1d14;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(80, 15, 10, .18);
+}
+.update-banner-copy { display: grid; gap: 3px; min-width: 0; }
+.update-banner-copy strong { font-size: 14px; }
+.update-banner-copy span { font-size: 12px; color: #ffe9e6; line-height: 1.4; }
+.update-banner-copy code {
+  margin-top: 3px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.update-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.update-banner-actions button { border-color: rgba(255,255,255,.5); background: #fff; color: #8f1d14; }
+.update-banner-actions .update-banner-dismiss { background: transparent; color: #fff; }
+.matched-skill-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.matched-skill-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 31px 7px 10px;
+  border-radius: 9px;
+  background: #eaf5ed;
+  border: 1px solid #cfe5d5;
+  color: #2c6e3f;
+  font-size: 12px;
+  font-weight: 750;
+}
+.matched-skill-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #2c6e3f;
+  font-size: 18px;
+  line-height: 1;
+}
+.matched-skill-remove:hover { background: #d9ecdf; }
+@media (max-width: 760px) {
+  .update-banner { align-items: flex-start; flex-direction: column; }
+  .update-banner-actions { width: 100%; flex-wrap: wrap; }
+}
