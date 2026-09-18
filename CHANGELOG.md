@@ -1,4 +1,4 @@
-# 0.16.2 - Fast saved views and background package alerts
+# 0.16.3 - Dashboard skill actions and deep analysis\n\n- Add a + action beside missing required/preferred skills in focused job details.\n- Require explicit confirmation before a missing skill is saved as a factual Profile skill.\n- Refresh focused job scoring immediately after a confirmed skill is added.\n- Add Deep analyze / Re-run deep analysis directly to the Dashboard details drawer with task progress and score refresh.\n- Keep discovery-result cache coherent when Profile skills or deep analysis change scoring.\n- Add regression coverage for idempotent skill additions and score improvement.\n\n# 0.16.2 - Fast saved views and background package alerts
 
 - Stop synchronous rescoring of every saved discovery job whenever Discover opens.
 - SQL-page common discovery views and preserve the last Discovery URL/results for instant cache-first navigation.
