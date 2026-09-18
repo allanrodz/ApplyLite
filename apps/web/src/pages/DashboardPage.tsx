@@ -551,10 +551,17 @@ export function DashboardPage() {
     setError("");
     setNotice("Sending sanitized document text to ZeroGPT and reading the advisory AI-content signal…");
     try {
-      const result = await api<{ document: PreviewKind; detection: ApplicationPackage["aiDetection"]["cv"]; package: ApplicationPackage }>(
+      const result = await api<
+        | { document: PreviewKind; detection: ApplicationPackage["aiDetection"]["cv"]; package: ApplicationPackage; blocked?: false }
+        | { document: PreviewKind; blocked: true; message: string }
+      >(
         `/jobs/${selected.id}/application-package/ai-detect`,
         { method: "POST", body: JSON.stringify({ document: kind }) }
       );
+      if (result.blocked) {
+        setNotice("ZeroGPT is asking for visible human verification, so ApplyLite stopped the automated check. No document data was changed. Try again later or check the sanitized text manually on ZeroGPT.");
+        return;
+      }
       setApplicationPackage(result.package);
       setNotice(`ZeroGPT returned ${result.detection?.score.toFixed(1)}% for the ${kind === "cv" ? "CV" : "cover letter"}. Treat this as an advisory signal, not a factual verdict.`);
     } catch (e) {
