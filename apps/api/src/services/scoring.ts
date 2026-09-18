@@ -56,7 +56,9 @@ function unique(values: string[]) {
   return [...seen.values()];
 }
 function candidateSkills(profile: Profile, facts?: CandidateFacts | null) {
-  return unique([...profile.skills, ...(facts?.skills ?? []), ...(facts?.projects.flatMap(project => project.technologies) ?? [])]);
+  const excluded = new Set((profile.excludedSkills ?? []).map(canonicalSkill));
+  return unique([...profile.skills, ...(facts?.skills ?? []), ...(facts?.projects.flatMap(project => project.technologies) ?? [])])
+    .filter((skill) => !excluded.has(canonicalSkill(skill)));
 }
 function partitionSkills(jobSkills: string[], candidate: string[]) {
   const matched: string[] = [], missing: string[] = [];
