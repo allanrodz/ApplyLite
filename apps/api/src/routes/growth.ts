@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { buildSkillGrowthOverview, generateSkillLearningPlan, listSkillLearningPlans, setLearningPlanStatus } from "../services/skillGrowth.js";
 import { askAiText, AiError, safeAiError } from "../services/aiProvider.js";
@@ -34,7 +34,7 @@ function jobContext(jobId?: number) {
   return `Job: ${row.title} at ${row.company}\n${requirements || row.description.slice(0, 1600)}`;
 }
 
-function aiFailure(reply: Parameters<Parameters<FastifyInstance["post"]>[1]>[1], error: unknown) {
+function aiFailure(reply: FastifyReply, error: unknown) {
   if (error instanceof z.ZodError) return reply.code(400).send({ error: error.issues[0]?.message ?? "Invalid skill AI request" });
   const safe = safeAiError(error);
   const message = error instanceof AiError
