@@ -129,6 +129,7 @@ try {
         } catch { Write-Warning "AI setup incomplete: $($_.Exception.Message) CV import/editing and profile matching remain available without AI." }
     }
     Set-Content (Join-Path $stage '.installed-commit') $sha -Encoding ascii
+    $InstalledVersion = ((Get-Content (Join-Path $stage 'package.json') -Raw | ConvertFrom-Json).version)
     Set-Location $parent
     if (Test-Path -LiteralPath $InstallDir) {
         $backup = "$InstallDir.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$([guid]::NewGuid().ToString('N').Substring(0,6))"
@@ -144,7 +145,7 @@ try {
         if ($backup -and (Test-Path -LiteralPath $backup)) { Move-Item -LiteralPath $backup -Destination $InstallDir }
         throw
     }
-    Write-Host "`nApplyLite 0.16.0 installed." -ForegroundColor Green
+    Write-Host "`nApplyLite $InstalledVersion installed." -ForegroundColor Green
     if ($backup) { Write-Host "Rollback copy: $backup" }
     Write-Host "Start: $InstallDir\Start ApplyLite.cmd"
     Write-Host "Future updates: Update ApplyLite.cmd (close ApplyLite first)."
