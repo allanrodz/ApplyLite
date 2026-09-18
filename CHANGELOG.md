@@ -1,3 +1,16 @@
+# 0.16.5 - Document variants, full previews and skill AI
+
+- Regenerate the tailored CV or cover letter independently without rebuilding the whole application package.
+- Add CV style controls (balanced, technical, impact-focused, concise) and evidence emphasis controls (auto, skills, experience, projects).
+- Add cover-letter tone controls (professional, warm, confident, direct) and short/standard length options.
+- Require regenerated variants to remain evidence-grounded and re-run the factual audit before they become the latest package.
+- Keep previous package versions/artifacts instead of overwriting them.
+- Add full rendered PDF previews for CV and cover letter inside the Dashboard, plus preview links from Review Queue.
+- Add AI explanation buttons to matched and missing skill chips in focused job details.
+- Add a compact skill Q&A panel that can use the selected job context while avoiding claims that the candidate possesses the skill.
+- Route skill explanations through the configured AI provider/privacy mode.
+- Bump ApplyLite to 0.16.5.
+
 # 0.16.4 - Update banner and reversible matched skills
 
 - Add a red, dismissible top-of-window banner when the installed commit differs from the latest public `main` commit.
