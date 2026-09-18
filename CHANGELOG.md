@@ -1,3 +1,14 @@
+# 0.16.9 - Skill AI and ZeroGPT reliability
+
+- Use ordinary text generation for lightweight skill chat instead of local structured-output mode, avoiding Ollama HTTP 500 failures seen with the configured model.
+- Keep final-answer cleanup so leaked reasoning tags are still removed before display.
+- Open ZeroGPT in an interactive browser for normal local use, allowing the user to complete legitimate human verification manually while ApplyLite waits.
+- Never bypass CAPTCHA or other human verification.
+- Broaden ZeroGPT score extraction across compatible result selectors and visible page text.
+- Wait up to two minutes in interactive mode and report clearer timeout/button-state errors.
+- Update the Dashboard notice so the user knows a ZeroGPT browser may appear.
+- Bump ApplyLite to 0.16.9.
+
 # 0.16.8 - Skill chat polish and ZeroGPT verification fix
 
 - Remove the literal `\\n` that was accidentally rendered at the top of the app.
