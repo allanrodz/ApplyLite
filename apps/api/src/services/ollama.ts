@@ -170,14 +170,14 @@ export async function ensureOllamaReady(): Promise<void> {
   if (!tags) {
     throw new Error(
       `Local AI is unavailable at ${config.ollamaBaseUrl}. ApplyLite tried to start Ollama automatically. `
-      + `Run \"ollama serve\" in another PowerShell window, then regenerate the package.`
+      + `Run \"ollama serve\" in another PowerShell window, then try the AI action again.`
     );
   }
 
   if (!hasConfiguredModel(tags)) {
     throw new Error(
       `Ollama is running, but the configured model \"${config.ollamaModel}\" is not installed. `
-      + `Run \"ollama pull ${config.ollamaModel}\" once, then regenerate the package.`
+      + `Run \"ollama pull ${config.ollamaModel}\" once, then try the AI action again.`
     );
   }
 }
