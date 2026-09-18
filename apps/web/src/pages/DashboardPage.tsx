@@ -549,7 +549,7 @@ export function DashboardPage() {
 
     setAiDetectionLoading(kind);
     setError("");
-    setNotice("Sending sanitized document text to ZeroGPT and reading the advisory AI-content signal…");
+    setNotice("Opening ZeroGPT with sanitized document text. If a browser verification appears, complete it there; ApplyLite will wait for the score…");
     try {
       const result = await api<
         | { document: PreviewKind; detection: ApplicationPackage["aiDetection"]["cv"]; package: ApplicationPackage; blocked?: false }
