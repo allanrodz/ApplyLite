@@ -244,6 +244,14 @@ export function ReviewQueuePage() {
                     {item.package.audit.warnings.length > 0 && (
                       <ul className="package-warnings">{item.package.audit.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
                     )}
+                    <div className="review-document-actions">
+                      {item.package.artifacts.find((artifact) => artifact.kind === "tailored_cv_pdf") && (
+                        <a target="_blank" rel="noreferrer" href={`${API_BASE}/artifacts/${item.package.artifacts.find((artifact) => artifact.kind === "tailored_cv_pdf")!.id}/preview`}>Preview full CV ↗</a>
+                      )}
+                      {item.package.artifacts.find((artifact) => artifact.kind === "cover_letter_pdf") && (
+                        <a target="_blank" rel="noreferrer" href={`${API_BASE}/artifacts/${item.package.artifacts.find((artifact) => artifact.kind === "cover_letter_pdf")!.id}/preview`}>Preview full cover letter ↗</a>
+                      )}
+                    </div>
                     <div className="artifact-list">
                       {item.package.artifacts.map((artifact) => <a key={artifact.id} href={`${API_BASE}${artifact.downloadUrl}`}>{artifact.filename}</a>)}
                     </div>
