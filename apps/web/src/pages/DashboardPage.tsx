@@ -51,51 +51,120 @@ function SkillChips({ values, tone = "good" }: { values: string[]; tone?: "good"
   return <div className={className}>{values.map((value) => <span key={value}>{value}</span>)}</div>;
 }
 
-function MissingSkillChips({ values, addingSkill, onAdd }: { values: string[]; addingSkill: string; onAdd: (skill: string) => void }) {
+function MissingSkillChips({ values, addingSkill, onAdd, onExplain }: { values: string[]; addingSkill: string; onAdd: (skill: string) => void; onExplain: (skill: string) => void }) {
   if (!values.length) return <p className="muted">None identified.</p>;
   return (
     <div className="missing-skill-grid">
       {values.map((value) => (
-        <span className="missing-skill-chip" key={value}>
+        <span className="missing-skill-chip skill-action-chip" key={value}>
           <span>{value}</span>
-          <button
-            type="button"
-            className="missing-skill-add"
-            aria-label={`Add ${value} to profile`}
-            title="Add this skill to your Profile only if you genuinely have it"
-            disabled={Boolean(addingSkill)}
-            onClick={() => onAdd(value)}
-          >
-            {addingSkill === value ? "…" : "+"}
-          </button>
+          <span className="skill-chip-actions">
+            <button type="button" className="skill-ai-button" aria-label={`Explain ${value} with AI`} title="Ask AI to explain this skill" onClick={() => onExplain(value)}>AI</button>
+            <button
+              type="button"
+              className="missing-skill-add"
+              aria-label={`Add ${value} to profile`}
+              title="Add this skill to your Profile only if you genuinely have it"
+              disabled={Boolean(addingSkill)}
+              onClick={() => onAdd(value)}
+            >
+              {addingSkill === value ? "…" : "+"}
+            </button>
+          </span>
         </span>
       ))}
     </div>
   );
 }
 
-function MatchedSkillChips({ values, removingSkill, onRemove }: { values: string[]; removingSkill: string; onRemove: (skill: string) => void }) {
+function MatchedSkillChips({ values, removingSkill, onRemove, onExplain }: { values: string[]; removingSkill: string; onRemove: (skill: string) => void; onExplain: (skill: string) => void }) {
   if (!values.length) return <p className="muted">None identified.</p>;
   return (
     <div className="matched-skill-grid">
       {values.map((value) => (
-        <span className="matched-skill-chip" key={value}>
+        <span className="matched-skill-chip skill-action-chip" key={value}>
           <span>{value}</span>
-          <button
-            type="button"
-            className="matched-skill-remove"
-            aria-label={`Remove ${value} from profile`}
-            title="Remove this skill from your Profile"
-            disabled={Boolean(removingSkill)}
-            onClick={() => onRemove(value)}
-          >
-            {removingSkill === value ? "…" : "−"}
-          </button>
+          <span className="skill-chip-actions">
+            <button type="button" className="skill-ai-button" aria-label={`Explain ${value} with AI`} title="Ask AI to explain this skill" onClick={() => onExplain(value)}>AI</button>
+            <button
+              type="button"
+              className="matched-skill-remove"
+              aria-label={`Remove ${value} from profile`}
+              title="Remove this skill from your Profile"
+              disabled={Boolean(removingSkill)}
+              onClick={() => onRemove(value)}
+            >
+              {removingSkill === value ? "…" : "−"}
+            </button>
+          </span>
         </span>
       ))}
     </div>
   );
 }
+
+type PreviewKind = "cv" | "coverLetter";
+type SkillChatMessage = { role: "user" | "assistant"; content: string };
+
+function PackageDocumentPreview({ pkg, kind, onClose }: { pkg: ApplicationPackage; kind: PreviewKind; onClose: () => void }) {
+  const pdfKind = kind === "cv" ? "tailored_cv_pdf" : "cover_letter_pdf";
+  const pdf = pkg.artifacts.find((artifact) => artifact.kind === pdfKind);
+  return (
+    <div className="document-modal-backdrop" onClick={onClose}>
+      <section className="document-modal" role="dialog" aria-modal="true" aria-label={kind === "cv" ? "Full CV preview" : "Full cover letter preview"} onClick={(event) => event.stopPropagation()}>
+        <div className="document-modal-header">
+          <div><span className="eyebrow">FULL DOCUMENT PREVIEW</span><h2>{kind === "cv" ? "Tailored CV" : "Cover letter"}</h2></div>
+          <button type="button" onClick={onClose}>Close ×</button>
+        </div>
+        {pdf ? (
+          <iframe className="document-pdf-preview" title={kind === "cv" ? "Tailored CV PDF preview" : "Cover letter PDF preview"} src={`${API_BASE}/artifacts/${pdf.id}/preview`} />
+        ) : kind === "cv" ? (
+          <div className="document-full-text">
+            <h2>{pkg.tailoredCv.headline}</h2>
+            <p>{pkg.tailoredCv.summary}</p>
+            <h3>Skills</h3><p>{pkg.tailoredCv.skills.join(" · ")}</p>
+            <h3>Experience</h3>
+            {pkg.tailoredCv.employment.map((entry) => <section key={`${entry.employer}-${entry.title}-${entry.startDate}`}><strong>{entry.title} · {entry.employer}</strong><small>{entry.startDate} – {entry.endDate || "Present"}</small><ul>{entry.bullets.map((bullet, index) => <li key={index}>{bullet.text}</li>)}</ul></section>)}
+            {pkg.tailoredCv.projects.length > 0 && <><h3>Projects</h3>{pkg.tailoredCv.projects.map((project) => <section key={project.name}><strong>{project.name}</strong><p>{project.description}</p><small>{project.technologies.join(" · ")}</small><ul>{project.bullets.map((bullet, index) => <li key={index}>{bullet.text}</li>)}</ul></section>)}</>}
+            {pkg.tailoredCv.education.length > 0 && <><h3>Education</h3>{pkg.tailoredCv.education.map((education, index) => <section key={`${education.institution}-${index}`}><strong>{education.qualification}{education.field ? ` · ${education.field}` : ""}</strong><p>{education.institution}</p><small>{education.startDate} – {education.endDate}</small></section>)}</>}
+          </div>
+        ) : (
+          <div className="document-full-text">
+            <p>{pkg.coverLetter.salutation}</p>
+            {pkg.coverLetter.paragraphs.map((paragraph, index) => <p key={index}>{paragraph.text}</p>)}
+            <p>{pkg.coverLetter.closing}</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function SkillAiPanel({ skill, messages, loading, question, onQuestion, onAsk, onClose }: {
+  skill: string;
+  messages: SkillChatMessage[];
+  loading: boolean;
+  question: string;
+  onQuestion: (value: string) => void;
+  onAsk: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="skill-ai-panel">
+      <div className="skill-ai-header"><div><span className="eyebrow">AI SKILL EXPLAINER</span><h3>{skill}</h3></div><button type="button" onClick={onClose}>×</button></div>
+      <div className="skill-ai-messages" aria-live="polite">
+        {messages.map((message, index) => <div className={`skill-ai-message ${message.role}`} key={index}><strong>{message.role === "assistant" ? "AI" : "You"}</strong><p>{message.content}</p></div>)}
+        {loading && <div className="skill-ai-message assistant"><strong>AI</strong><p>Thinking…</p></div>}
+      </div>
+      <form className="skill-ai-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}>
+        <input value={question} onChange={(event) => onQuestion(event.target.value)} placeholder={`Ask about ${skill}…`} maxLength={500} />
+        <button className="primary" disabled={loading || !question.trim()}>Ask</button>
+      </form>
+      <small>The explainer can use this job's context, but it does not prove that you possess the skill.</small>
+    </div>
+  );
+}
+
 
 function humanizeStatus(value: string) {
   return value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
@@ -142,6 +211,16 @@ export function DashboardPage() {
   const [removingSkill, setRemovingSkill] = useState("");
   const [deepTask, setDeepTask] = useState<Task | null>(null);
   const [deepJobId, setDeepJobId] = useState<number | null>(null);
+  const [documentLoading, setDocumentLoading] = useState<PreviewKind | "">("");
+  const [cvStyle, setCvStyle] = useState<"balanced" | "technical" | "impact" | "concise">("balanced");
+  const [cvEmphasis, setCvEmphasis] = useState<"auto" | "skills" | "experience" | "projects">("auto");
+  const [letterTone, setLetterTone] = useState<"professional" | "warm" | "confident" | "direct">("professional");
+  const [letterLength, setLetterLength] = useState<"short" | "standard">("standard");
+  const [previewKind, setPreviewKind] = useState<PreviewKind | null>(null);
+  const [skillAiSkill, setSkillAiSkill] = useState("");
+  const [skillAiMessages, setSkillAiMessages] = useState<SkillChatMessage[]>([]);
+  const [skillAiLoading, setSkillAiLoading] = useState(false);
+  const [skillAiQuestion, setSkillAiQuestion] = useState("");
 
   async function refresh(learned = useOutcomeLearning) {
     const [jobRows, applicationRows, trackerRows] = await Promise.all([
@@ -386,6 +465,63 @@ export function DashboardPage() {
     } catch (e) {
       setNotice("");
       setError(e instanceof Error ? e.message : "Could not start deep analysis");
+    }
+  }
+
+  async function regenerateDocument(kind: PreviewKind) {
+    if (!selected || !applicationPackage) return;
+    setDocumentLoading(kind);
+    setError("");
+    setNotice(kind === "cv" ? "Generating a fresh CV variant and re-running the evidence audit…" : "Writing a fresh cover-letter variant and re-running the evidence audit…");
+    try {
+      const body = kind === "cv"
+        ? { document: "cv", cvStyle, emphasis: cvEmphasis }
+        : { document: "coverLetter", tone: letterTone, length: letterLength };
+      const next = await api<ApplicationPackage>(`/jobs/${selected.id}/application-package/regenerate`, { method: "POST", body: JSON.stringify(body) });
+      setApplicationPackage(next);
+      setNotice(`${kind === "cv" ? "CV" : "Cover letter"} regenerated. Review the full preview and evidence audit before use.`);
+      setPreviewKind(kind);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not regenerate this document");
+      setNotice("");
+    } finally {
+      setDocumentLoading("");
+    }
+  }
+
+  async function explainSkill(skill: string) {
+    if (!selected) return;
+    setSkillAiSkill(skill);
+    setSkillAiMessages([]);
+    setSkillAiQuestion("");
+    setSkillAiLoading(true);
+    try {
+      const result = await api<{ skill: string; answer: string }>("/growth/skill-explain", { method: "POST", body: JSON.stringify({ skill, jobId: selected.id }) });
+      setSkillAiMessages([{ role: "assistant", content: result.answer }]);
+    } catch (e) {
+      setSkillAiMessages([{ role: "assistant", content: e instanceof Error ? e.message : "AI could not explain this skill." }]);
+    } finally {
+      setSkillAiLoading(false);
+    }
+  }
+
+  async function askSkillQuestion() {
+    if (!selected || !skillAiSkill || !skillAiQuestion.trim() || skillAiLoading) return;
+    const question = skillAiQuestion.trim();
+    const history = skillAiMessages.slice(-6);
+    setSkillAiMessages((current) => [...current, { role: "user", content: question }]);
+    setSkillAiQuestion("");
+    setSkillAiLoading(true);
+    try {
+      const result = await api<{ skill: string; answer: string }>("/growth/skill-ask", {
+        method: "POST",
+        body: JSON.stringify({ skill: skillAiSkill, jobId: selected.id, question, history })
+      });
+      setSkillAiMessages((current) => [...current, { role: "assistant", content: result.answer }]);
+    } catch (e) {
+      setSkillAiMessages((current) => [...current, { role: "assistant", content: e instanceof Error ? e.message : "AI could not answer that question." }]);
+    } finally {
+      setSkillAiLoading(false);
     }
   }
 
@@ -778,7 +914,7 @@ export function DashboardPage() {
                 <small>Use − only if a skill should not be represented in your Profile. Removing it refreshes matching across ApplyLite.</small>
               </div>
             </div>
-            <MatchedSkillChips values={selected.scoreBreakdown.matchedRequiredSkills ?? []} removingSkill={removingSkill} onRemove={removeMatchedSkill} />
+            <MatchedSkillChips values={selected.scoreBreakdown.matchedRequiredSkills ?? []} removingSkill={removingSkill} onRemove={removeMatchedSkill} onExplain={explainSkill} />
 
             <div className="skill-section-heading">
               <div>
@@ -786,7 +922,7 @@ export function DashboardPage() {
                 <small>Add a skill only when it is genuinely part of your experience. Adding it updates your Profile and refreshes this fit score.</small>
               </div>
             </div>
-            <MissingSkillChips values={selected.scoreBreakdown.missingRequiredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} />
+            <MissingSkillChips values={selected.scoreBreakdown.missingRequiredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} onExplain={explainSkill} />
 
             {(selected.scoreBreakdown.matchedPreferredSkills ?? []).length > 0 && (
               <>
@@ -796,7 +932,7 @@ export function DashboardPage() {
                     <small>Use − if this skill should be removed from your Profile.</small>
                   </div>
                 </div>
-                <MatchedSkillChips values={selected.scoreBreakdown.matchedPreferredSkills ?? []} removingSkill={removingSkill} onRemove={removeMatchedSkill} />
+                <MatchedSkillChips values={selected.scoreBreakdown.matchedPreferredSkills ?? []} removingSkill={removingSkill} onRemove={removeMatchedSkill} onExplain={explainSkill} />
               </>
             )}
 
@@ -815,7 +951,7 @@ export function DashboardPage() {
                     <small>If you already have one of these skills, add it to Profile and ApplyLite will refresh the score.</small>
                   </div>
                 </div>
-                <MissingSkillChips values={selected.scoreBreakdown.missingPreferredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} />
+                <MissingSkillChips values={selected.scoreBreakdown.missingPreferredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} onExplain={explainSkill} />
               </>
             )}
 
@@ -865,6 +1001,25 @@ export function DashboardPage() {
               </div>
 
               {applicationPackage && (
+                <div className="document-regeneration-grid">
+                  <section>
+                    <div className="document-regeneration-heading"><strong>Tailored CV</strong><button type="button" onClick={() => setPreviewKind("cv")}>Preview full CV</button></div>
+                    <label>Style<select value={cvStyle} onChange={(event) => setCvStyle(event.target.value as typeof cvStyle)}><option value="balanced">Balanced</option><option value="technical">Technical</option><option value="impact">Impact-focused</option><option value="concise">Concise</option></select></label>
+                    <label>Emphasis<select value={cvEmphasis} onChange={(event) => setCvEmphasis(event.target.value as typeof cvEmphasis)}><option value="auto">Best evidence automatically</option><option value="skills">Skills</option><option value="experience">Experience</option><option value="projects">Projects</option></select></label>
+                    <button type="button" disabled={Boolean(documentLoading)} onClick={() => regenerateDocument("cv")}>{documentLoading === "cv" ? "Regenerating CV…" : "Regenerate CV only"}</button>
+                    <small>Facts and source bullets stay evidence-grounded; the AI varies selection, emphasis and summary wording.</small>
+                  </section>
+                  <section>
+                    <div className="document-regeneration-heading"><strong>Cover letter</strong><button type="button" onClick={() => setPreviewKind("coverLetter")}>Preview full letter</button></div>
+                    <label>Tone<select value={letterTone} onChange={(event) => setLetterTone(event.target.value as typeof letterTone)}><option value="professional">Professional</option><option value="warm">Warm</option><option value="confident">Confident</option><option value="direct">Direct</option></select></label>
+                    <label>Length<select value={letterLength} onChange={(event) => setLetterLength(event.target.value as typeof letterLength)}><option value="standard">Standard</option><option value="short">Short</option></select></label>
+                    <button type="button" disabled={Boolean(documentLoading)} onClick={() => regenerateDocument("coverLetter")}>{documentLoading === "coverLetter" ? "Regenerating letter…" : "Regenerate cover letter only"}</button>
+                    <small>A new wording variant is generated without inventing candidate facts, then the evidence audit runs again.</small>
+                  </section>
+                </div>
+              )}
+
+              {applicationPackage && (
                 <div className="package-preview">
                   <div className="audit-summary">
                     <div><span>Claims checked</span><strong>{applicationPackage.audit.checkedClaims}</strong></div>
@@ -882,14 +1037,14 @@ export function DashboardPage() {
                   )}
                   {applicationPackage.audit.warnings.length > 0 && <ul className="package-warnings">{applicationPackage.audit.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
 
-                  <h3>Tailored CV preview</h3>
+                  <div className="preview-heading"><h3>Tailored CV preview</h3><button type="button" onClick={() => setPreviewKind("cv")}>Open full preview</button></div>
                   <div className="document-preview">
                     <strong>{applicationPackage.tailoredCv.headline}</strong>
                     <p>{applicationPackage.tailoredCv.summary}</p>
                     <div className="chips subdued">{applicationPackage.tailoredCv.skills.slice(0, 12).map((skill) => <span key={skill}>{skill}</span>)}</div>
                   </div>
 
-                  <h3>Cover letter preview</h3>
+                  <div className="preview-heading"><h3>Cover letter preview</h3><button type="button" onClick={() => setPreviewKind("coverLetter")}>Open full preview</button></div>
                   <div className="document-preview">
                     <p>{applicationPackage.coverLetter.salutation}</p>
                     {applicationPackage.coverLetter.paragraphs.map((paragraph, index) => <p key={index}>{paragraph.text}</p>)}
@@ -1015,6 +1170,19 @@ export function DashboardPage() {
             )}
           </aside>
         </div>
+      )}
+
+      {previewKind && applicationPackage && <PackageDocumentPreview pkg={applicationPackage} kind={previewKind} onClose={() => setPreviewKind(null)} />}
+      {skillAiSkill && (
+        <SkillAiPanel
+          skill={skillAiSkill}
+          messages={skillAiMessages}
+          loading={skillAiLoading}
+          question={skillAiQuestion}
+          onQuestion={setSkillAiQuestion}
+          onAsk={askSkillQuestion}
+          onClose={() => { setSkillAiSkill(""); setSkillAiMessages([]); setSkillAiQuestion(""); }}
+        />
       )}
     </>
   );
