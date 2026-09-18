@@ -192,16 +192,22 @@ function SkillAiPanel({ skill, messages, loading, question, onQuestion, onAsk, o
 }) {
   return (
     <div className="skill-ai-panel">
-      <div className="skill-ai-header"><div><span className="eyebrow">AI SKILL EXPLAINER</span><h3>{skill}</h3></div><button type="button" onClick={onClose}>×</button></div>
+      <div className="skill-ai-header"><div><span className="eyebrow">AI SKILL CHAT</span><h3>{skill}</h3></div><button type="button" onClick={onClose}>×</button></div>
       <div className="skill-ai-messages" aria-live="polite">
+        {messages.length === 0 && !loading && (
+          <div className="skill-ai-empty">
+            <strong>What would you like to know?</strong>
+            <p>Ask what this skill means, how it is used, why this role asks for it, or what a practical example looks like.</p>
+          </div>
+        )}
         {messages.map((message, index) => <div className={`skill-ai-message ${message.role}`} key={index}><strong>{message.role === "assistant" ? "AI" : "You"}</strong><p>{message.content}</p></div>)}
-        {loading && <div className="skill-ai-message assistant"><strong>AI</strong><p>Thinking…</p></div>}
+        {loading && <div className="skill-ai-message assistant status"><strong>AI</strong><p>Answering…</p></div>}
       </div>
       <form className="skill-ai-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}>
-        <input value={question} onChange={(event) => onQuestion(event.target.value)} placeholder={`Ask about ${skill}…`} maxLength={500} />
+        <input autoFocus value={question} onChange={(event) => onQuestion(event.target.value)} placeholder={`Ask a question about ${skill}…`} maxLength={500} />
         <button className="primary" disabled={loading || !question.trim()}>Ask</button>
       </form>
-      <small>The explainer can use this job's context, but it does not prove that you possess the skill.</small>
+      <small>Only the final answer is shown. The tutor can use this job's context but never treats the chat as proof that you possess the skill.</small>
     </div>
   );
 }
@@ -545,10 +551,17 @@ export function DashboardPage() {
     setError("");
     setNotice("Sending sanitized document text to ZeroGPT and reading the advisory AI-content signal…");
     try {
-      const result = await api<{ document: PreviewKind; detection: ApplicationPackage["aiDetection"]["cv"]; package: ApplicationPackage }>(
+      const result = await api<
+        | { document: PreviewKind; detection: ApplicationPackage["aiDetection"]["cv"]; package: ApplicationPackage; blocked?: false }
+        | { document: PreviewKind; blocked: true; message: string }
+      >(
         `/jobs/${selected.id}/application-package/ai-detect`,
         { method: "POST", body: JSON.stringify({ document: kind }) }
       );
+      if (result.blocked) {
+        setNotice("ZeroGPT is asking for visible human verification, so ApplyLite stopped the automated check. No document data was changed. Try again later or check the sanitized text manually on ZeroGPT.");
+        return;
+      }
       setApplicationPackage(result.package);
       setNotice(`ZeroGPT returned ${result.detection?.score.toFixed(1)}% for the ${kind === "cv" ? "CV" : "cover letter"}. Treat this as an advisory signal, not a factual verdict.`);
     } catch (e) {
@@ -559,20 +572,12 @@ export function DashboardPage() {
     }
   }
 
-  async function explainSkill(skill: string) {
+  function explainSkill(skill: string) {
     if (!selected) return;
     setSkillAiSkill(skill);
     setSkillAiMessages([]);
     setSkillAiQuestion("");
-    setSkillAiLoading(true);
-    try {
-      const result = await api<{ skill: string; answer: string }>("/growth/skill-explain", { method: "POST", body: JSON.stringify({ skill, jobId: selected.id }) });
-      setSkillAiMessages([{ role: "assistant", content: result.answer }]);
-    } catch (e) {
-      setSkillAiMessages([{ role: "assistant", content: e instanceof Error ? e.message : "AI could not explain this skill." }]);
-    } finally {
-      setSkillAiLoading(false);
-    }
+    setSkillAiLoading(false);
   }
 
   async function askSkillQuestion() {

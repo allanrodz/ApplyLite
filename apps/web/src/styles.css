@@ -1238,3 +1238,13 @@ textarea { resize: vertical; line-height: 1.5; }
 @media (max-width: 760px) {
   .ai-detector-grid { grid-template-columns: 1fr; }
 }
+
+.skill-ai-empty {
+  border: 1px dashed #d9e1eb;
+  border-radius: 11px;
+  padding: 13px;
+  background: #fafbfd;
+}
+.skill-ai-empty strong { color: #344258; font-size: 13px; }
+.skill-ai-empty p { margin: 5px 0 0; color: #768296; font-size: 12px; line-height: 1.5; }
+.skill-ai-message.status { opacity: .78; }

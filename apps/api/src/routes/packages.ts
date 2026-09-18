@@ -51,7 +51,10 @@ export async function packageRoutes(app: FastifyInstance) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "ZeroGPT check failed";
       request.log.warn({ err: error, jobId }, "ZeroGPT AI-content check failed");
-      return reply.code(/captcha|human verification/i.test(message) ? 409 : 502).send({ error: message });
+      if (/captcha|human verification/i.test(message)) {
+        return { document: AiDetectSchema.parse(request.body ?? {}).document, blocked: true, message };
+      }
+      return reply.code(502).send({ error: message });
     }
   });
 

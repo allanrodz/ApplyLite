@@ -16,6 +16,7 @@ const {jobRoutes}=await import("../src/routes/jobs.js");
 const {profileRoutes}=await import("../src/routes/profile.js");
 const {compareUpdate,isNewerVersion}=await import("../src/services/updateStatus.js");
 const {parseZeroGptScore,sanitizedCvText,sanitizedCoverLetterText}=await import("../src/services/zeroGpt.js");
+const {cleanSkillTutorAnswer}=await import("../src/routes/growth.js");
 
 const breakdown=JSON.stringify({total:50,skills:0,title:0,location:0,experience:0,preference:0,matchedSkills:[],missingSkills:[],matchedRequiredSkills:[],missingRequiredSkills:[],reasons:[],concerns:[]});
 const requirements=JSON.stringify({});
@@ -92,8 +93,16 @@ assert.match(sanitizedCv,/Frontend Developer/);
 assert.match(sanitizedCv,/Built reusable React interfaces/);
 assert.doesNotMatch(sanitizedCv,/Private Employer|Private University|2024|2027|Dublin/);
 assert.equal(sanitizedCoverLetterText({salutation:"Dear Hiring Team,",paragraphs:[{text:"I am interested in this role.",evidenceIds:[]}],closing:"Kind regards,"} as any),"Dear Hiring Team,\n\nI am interested in this role.\n\nKind regards,");
+assert.equal(
+  cleanSkillTutorAnswer("<think>private reasoning that must never be shown</think> Final answer for the user."),
+  "Final answer for the user."
+);
+assert.equal(
+  cleanSkillTutorAnswer("analysis text</analysis>Useful final answer."),
+  "Useful final answer."
+);
 
 await api.close();
 db.close();
 fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:50});
-console.log("Fast read regression PASS: bounded reads, skill rescoring, update comparison and sanitized ZeroGPT payload helpers.");
+console.log("Fast read regression PASS: bounded reads, skill rescoring, update comparison, sanitized detector payloads and hidden-reasoning cleanup.");
