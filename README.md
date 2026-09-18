@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.8.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
+**Release candidate: 0.16.9.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
@@ -155,3 +155,10 @@ npm run dev
 ```
 
 CI runs on Windows, including PowerShell syntax, locked installation, TypeScript/build, synthetic API regressions, real Chromium onboarding/navigation/background-discovery journeys and updater preservation tests. Provider contract tests use mocks and **do not demonstrate actual Groq/Ollama quality or speed**. The updater filesystem tests mock external downloads/vendor installers. No private CV, API key or personal database is required for tests.
+
+
+### 0.16.9 reliability note
+
+Skill chat now uses ordinary text generation for lightweight Q&A instead of local JSON-schema mode, because some Ollama/model combinations can return HTTP 500 for structured output even while normal chat works. The same final-answer cleanup still removes leaked reasoning tags before display.
+
+ZeroGPT checks now open an interactive browser in the normal local desktop configuration. ApplyLite fills the sanitized text, clicks Detect, waits up to two minutes, and reads the score from several compatible result layouts. If ZeroGPT shows legitimate human verification, the user can complete it in that browser window while ApplyLite waits; ApplyLite never bypasses CAPTCHA.
