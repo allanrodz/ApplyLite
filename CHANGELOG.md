@@ -1,3 +1,15 @@
+# 0.16.4 - Update banner and reversible matched skills
+
+- Add a red, dismissible top-of-window banner when the installed commit differs from the latest public `main` commit.
+- Key dismissal to the specific remote commit/version so a later merge automatically shows a fresh notice.
+- Include a copyable PowerShell update command and remind users to close ApplyLite before updating.
+- Cache public GitHub update checks for ten minutes and recheck on focus/visibility without sending CV, profile, job or application content.
+- Fix stale hard-coded API/installer version strings and make the installer print the staged package version.
+- Add a − action beside matched required/preferred skills in focused Dashboard details.
+- Confirm before removing a skill, suppress it from matching even when older CV evidence mentions it, and refresh the focused job score immediately.
+- Re-adding a skill clears the suppression.
+- Add regression coverage for skill add/remove/re-add scoring and commit/version update comparison.
+
 # 0.16.3 - Dashboard skill actions and deep analysis\n\n- Add a + action beside missing required/preferred skills in focused job details.\n- Require explicit confirmation before a missing skill is saved as a factual Profile skill.\n- Refresh focused job scoring immediately after a confirmed skill is added.\n- Add Deep analyze / Re-run deep analysis directly to the Dashboard details drawer with task progress and score refresh.
 - Color-code Dashboard score confidence: provisional quick scores in red and AI-analyzed scores in green, including the details drawer.\n- Keep discovery-result cache coherent when Profile skills or deep analysis change scoring.\n- Add regression coverage for idempotent skill additions and score improvement.\n\n# 0.16.2 - Fast saved views and background package alerts
 

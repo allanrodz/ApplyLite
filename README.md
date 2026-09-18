@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.3.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
+**Release candidate: 0.16.4.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
@@ -18,7 +18,7 @@ This downloads and executes repository code. Review `install.ps1` before running
 
 Default location: `%LOCALAPPDATA%\ApplyLite`. Open `http://localhost:5173`. The API binds to `127.0.0.1:4310`, not your public network interface. Keep the ApplyLite launcher/backend running while using it.
 
-Use **Start ApplyLite.cmd** to start again and **Update ApplyLite.cmd** for future updates. To update a non-Git custom installation:
+Use **Start ApplyLite.cmd** to start again and **Update ApplyLite.cmd** for future updates. The app also shows a red update-available banner after a newer commit is merged into `main`; close ApplyLite before running the displayed command. To update a non-Git custom installation:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/allanrodz/ApplyLite/main/install.ps1))) -InstallDir "C:\Apps\ApplyLite"
@@ -38,7 +38,9 @@ The updater stages and checks code before replacement, preserves standard and le
 6. Open **Discover**. The default is **zero AI analyses**: fetch, deduplicate, quick-score and save jobs. Choose a bounded number of deep analyses when useful.
 7. Browse all saved discoveries or this run. Filter by score, title alignment, seniority, location, remote arrangement or analysis status without searching again. Discovery is intentionally broad and may contain many low-score possibilities.
 8. For a role you may actually pursue, choose **Move to Dashboard**. Discovery keeps the broad market separate from your focused application workspace.
-9. In **Dashboard**, start package generation. It runs in the background, so you can return to Discover and keep comparing jobs. A persistent in-app alert appears when the tailored CV and cover letter are ready (and a system notification is used if the browser already has notification permission). Review the package, then open the employer form for assisted filling. ApplyLite never clicks the employer's final Submit control.\n10. In a focused job's **Details**, you can run **Deep analyze this job**. Missing required/preferred skills include a **+** action; adding one requires explicit confirmation that you genuinely have the skill, writes it to Profile, and immediately refreshes that job's score.
+9. In **Dashboard**, start package generation. It runs in the background, so you can return to Discover and keep comparing jobs. A persistent in-app alert appears when the tailored CV and cover letter are ready (and a system notification is used if the browser already has notification permission). Review the package, then open the employer form for assisted filling. ApplyLite never clicks the employer's final Submit control.
+10. In a focused job's **Details**, you can run **Deep analyze this job**. Missing required/preferred skills include a **+** action; adding one requires explicit confirmation that you genuinely have the skill, writes it to Profile, and immediately refreshes that job's score. Matched skills include a **−** action; removing one explicitly suppresses it from matching until you add it back.
+11. ApplyLite checks public GitHub `main` metadata for updates. When the installed commit is behind, a red dismissible banner appears at the top with the PowerShell update command. Dismissal applies only to that remote commit, so a later merged PR makes the banner appear again. The check sends no CV/profile/job content to GitHub.
 
 The application remains one person's local workspace. Each friend should use their own installation and data; it is not a hosted multi-user service.
 

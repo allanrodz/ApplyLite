@@ -20,7 +20,7 @@ function localPath(key: string, fallback: string) {
 export const config = {
   aiMode: (["local_only","local_then_cloud","cloud_preferred"].includes(env.AI_MODE || "") ? env.AI_MODE : "local_only") as "local_only"|"local_then_cloud"|"cloud_preferred",
   cloudAiConsent: env.CLOUD_AI_CONSENT === "true", groqModel: env.GROQ_MODEL || "openai/gpt-oss-20b", groqApiKey: env.GROQ_API_KEY || "",
-  version: "0.16.0", port: positive("API_PORT", 4310), webOrigin: env.WEB_ORIGIN || "http://localhost:5173",
+  version: "0.16.4", port: positive("API_PORT", 4310), webOrigin: env.WEB_ORIGIN || "http://localhost:5173",
   databasePath: localPath("DATABASE_PATH", "./data/apply-lite.db"), storagePath: localPath("STORAGE_PATH", "./storage"),
   ollamaBaseUrl: (env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, ""), ollamaModel: env.OLLAMA_MODEL || "qwen3:4b",
   ollamaTimeoutMs: positive("OLLAMA_TIMEOUT_MS", 180_000), cvAiTimeoutMs: positive("CV_AI_TIMEOUT_MS", 180_000),

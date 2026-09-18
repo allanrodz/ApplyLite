@@ -74,6 +74,29 @@ function MissingSkillChips({ values, addingSkill, onAdd }: { values: string[]; a
   );
 }
 
+function MatchedSkillChips({ values, removingSkill, onRemove }: { values: string[]; removingSkill: string; onRemove: (skill: string) => void }) {
+  if (!values.length) return <p className="muted">None identified.</p>;
+  return (
+    <div className="matched-skill-grid">
+      {values.map((value) => (
+        <span className="matched-skill-chip" key={value}>
+          <span>{value}</span>
+          <button
+            type="button"
+            className="matched-skill-remove"
+            aria-label={`Remove ${value} from profile`}
+            title="Remove this skill from your Profile"
+            disabled={Boolean(removingSkill)}
+            onClick={() => onRemove(value)}
+          >
+            {removingSkill === value ? "…" : "−"}
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function humanizeStatus(value: string) {
   return value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
@@ -116,6 +139,7 @@ export function DashboardPage() {
   const [browserLoading, setBrowserLoading] = useState(false);
   const [useOutcomeLearning, setUseOutcomeLearning] = useState(true);
   const [addingSkill, setAddingSkill] = useState("");
+  const [removingSkill, setRemovingSkill] = useState("");
   const [deepTask, setDeepTask] = useState<Task | null>(null);
   const [deepJobId, setDeepJobId] = useState<number | null>(null);
 
@@ -315,6 +339,39 @@ export function DashboardPage() {
       setError(e instanceof Error ? e.message : "Could not add this skill to Profile");
     } finally {
       setAddingSkill("");
+    }
+  }
+
+  async function removeMatchedSkill(skill: string) {
+    if (!selected) return;
+    const confirmed = window.confirm(
+      `Remove "${skill}" from your Profile?\n\nThis removes it as a factual skill across ApplyLite, so scores and future application materials may change. Only continue if this skill should not be represented in your Profile.`
+    );
+    if (!confirmed) return;
+
+    const jobId = selected.id;
+    const before = selected.score;
+    setRemovingSkill(skill);
+    setError("");
+    try {
+      const result = await api<{ removed: boolean }>("/profile/skills", {
+        method: "DELETE",
+        body: JSON.stringify({ skill })
+      });
+      sessionStorage.removeItem("applylite:discovery-results-v2");
+      const rows = await refresh();
+      const updated = rows.find((job) => job.id === jobId);
+      if (result.removed) {
+        setNotice(updated
+          ? `Removed ${skill} from your Profile. This job's fit score is now ${updated.score}%${updated.score !== before ? ` (was ${before}%)` : ""}.`
+          : `Removed ${skill} from your Profile.`);
+      } else {
+        setNotice(`${skill} was not present in your Profile. The job score has been refreshed.`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not remove this skill from Profile");
+    } finally {
+      setRemovingSkill("");
     }
   }
 
@@ -715,8 +772,13 @@ export function DashboardPage() {
               ))}
             </div>
 
-            <h3>Required skills matched</h3>
-            <SkillChips values={selected.scoreBreakdown.matchedRequiredSkills ?? []} />
+            <div className="skill-section-heading">
+              <div>
+                <h3>Required skills matched</h3>
+                <small>Use − only if a skill should not be represented in your Profile. Removing it refreshes matching across ApplyLite.</small>
+              </div>
+            </div>
+            <MatchedSkillChips values={selected.scoreBreakdown.matchedRequiredSkills ?? []} removingSkill={removingSkill} onRemove={removeMatchedSkill} />
 
             <div className="skill-section-heading">
               <div>
@@ -726,9 +788,21 @@ export function DashboardPage() {
             </div>
             <MissingSkillChips values={selected.scoreBreakdown.missingRequiredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} />
 
+            {(selected.scoreBreakdown.matchedPreferredSkills ?? []).length > 0 && (
+              <>
+                <div className="skill-section-heading">
+                  <div>
+                    <h3>Preferred skills matched</h3>
+                    <small>Use − if this skill should be removed from your Profile.</small>
+                  </div>
+                </div>
+                <MatchedSkillChips values={selected.scoreBreakdown.matchedPreferredSkills ?? []} removingSkill={removingSkill} onRemove={removeMatchedSkill} />
+              </>
+            )}
+
             {selected.requirements.preferredSkills.length > 0 && (
               <>
-                <h3>Preferred skills</h3>
+                <h3>All preferred skills from the posting</h3>
                 <SkillChips values={selected.requirements.preferredSkills} tone="neutral" />
               </>
             )}

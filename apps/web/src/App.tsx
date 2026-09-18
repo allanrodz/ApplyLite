@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useLocation, viewFromPath, navigate, guideTo, type View } from "./lib/navigation";
 import { GettingStarted } from "./components/GettingStarted";
 import { PackageNotifications } from "./components/PackageNotifications";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AnswersPage } from "./pages/AnswersPage";
@@ -30,14 +31,16 @@ export function App() {
   useEffect(() => { if (window.location.hash) guideTo(window.location.hash.slice(1)); }, [location]);
 
   return (
-    <div className="shell">
+    <>
+      <UpdateBanner />
+      <div className="shell">
       <PackageNotifications />
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">A</div>
           <div>
             <strong>ApplyLite</strong>
-            <span>local job copilot - v0.16.3</span>
+            <span>local job copilot - v0.16.4</span>
           </div>
         </div>
 
@@ -82,5 +85,6 @@ export function App() {
         {view === "system" && <SystemPage />}
       </main>
     </div>
+    </>
   );
 }

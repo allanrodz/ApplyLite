@@ -34,6 +34,7 @@ export const ProfileSchema = z.object({
   currentTitle: z.string().default(""),
   targetTitles: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
+  excludedSkills: z.array(z.string()).default([]),
   yearsExperience: z.number().min(0).default(0),
   preferredLocations: z.array(z.string()).default([]),
   remotePreference: z.enum(["any", "remote", "hybrid", "onsite"]).default("any"),

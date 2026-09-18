@@ -1050,12 +1050,14 @@ export function locationEligibility(
 }
 
 function candidateSkills(profile: Profile, facts: CandidateFacts | null) {
+  const excluded = new Set((profile.excludedSkills ?? []).map(canonicalSkill));
   const values = [
     ...profile.skills,
     ...(facts?.skills ?? []),
     ...(facts?.projects.flatMap((project) => project.technologies) ?? [])
   ];
-  return [...new Set(values.map((value) => normalize(value)).filter(Boolean))];
+  return [...new Set(values.map((value) => normalize(value)).filter(Boolean))]
+    .filter((value) => !excluded.has(canonicalSkill(value)));
 }
 
 function cheapScore(
@@ -1244,7 +1246,7 @@ export function quickRequirements(posting:{title:string;description:string;locat
  return JobRequirementsSchema.parse({requiredExperienceYears:years.length?Math.max(...years):null,workplaceType:/\bhybrid\b/i.test(text)?"hybrid":/\b(remote|work from home)\b/i.test(text)?"remote":/\b(on[- ]site|office[- ]based)\b/i.test(text)?"onsite":"unknown",seniority:/\b(senior|staff|principal|lead|director|head of)\b/i.exec(posting.title)?.[0]||/\b(junior|graduate|entry[- ]level|trainee|intern)\b/i.exec(posting.title)?.[0]||"",warnings:["Quick analysis only. Required versus preferred skills and qualifications have not been fully identified."]});
 }
 function profileHash(profile:Profile){return createHash("sha256").update(JSON.stringify(profile)).digest("hex");}
-function mentionedSkills(profile:Profile,facts:CandidateFacts|null,text:string){return [...new Set([...profile.skills,...(facts?.skills||[]),...(facts?.projects.flatMap(p=>p.technologies)||[])])].filter(skill=>containsTerm(text,skill)||containsTerm(text,canonicalSkill(skill)));}
+function mentionedSkills(profile:Profile,facts:CandidateFacts|null,text:string){const excluded=new Set((profile.excludedSkills??[]).map(canonicalSkill));return [...new Set([...profile.skills,...(facts?.skills||[]),...(facts?.projects.flatMap(p=>p.technologies)||[])])].filter(skill=>!excluded.has(canonicalSkill(skill))&&(containsTerm(text,skill)||containsTerm(text,canonicalSkill(skill))));}
 async function executeDiscovery(input:DiscoveryRunInput,dependencies:DiscoveryDependencies={}) {
  const startedAt=Date.now(),profile=loadProfile(),facts=loadCandidateFacts(),cvId=reviewedCv()?.id||null;
  const targetTitles=(input.targetTitles?.length?input.targetTitles:targets(profile)).filter(Boolean);

@@ -13,12 +13,14 @@ import {
   stageRestore
 } from "../services/systemMaintenance.js";
 import { closeAllApplicationBrowsers } from "../automation/sessionManager.js";
+import { getUpdateStatus } from "../services/updateStatus.js";
 
 const BackupSchema = z.object({ label: z.string().max(40).optional() });
 const ResetSchema = z.object({ confirmation: z.string() });
 
 export async function systemRoutes(app: FastifyInstance) {
   app.get("/system/doctor", async () => getSystemDoctor());
+  app.get<{ Querystring: { force?: string } }>("/system/update-status", async (request) => getUpdateStatus(request.query.force === "1" || request.query.force === "true"));
   app.get("/system/diagnostics", async () => getSystemDiagnostics());
   app.get("/system/backups", async () => listBackups());
 
