@@ -1,3 +1,15 @@
+# 0.16.8 - Skill chat polish and ZeroGPT verification fix
+
+- Remove the literal `\\n` that was accidentally rendered at the top of the app.
+- Make skill AI user-led: clicking AI opens an empty chat and waits for the user's first question.
+- Replace the visible "Thinking..." state with a neutral "Answering..." status.
+- Ask the model for a compact structured final answer only and strip any leaked `<think>` / `<analysis>` content before display.
+- Increase the bounded skill-answer output budget and shorten injected job context to reduce truncated-output failures.
+- Only treat visible ZeroGPT verification/CAPTCHA UI as a real challenge; hidden widgets no longer trigger a false block.
+- Treat a genuine ZeroGPT human-verification challenge as a handled in-app notice rather than HTTP 409 console noise.
+- Add regression coverage for hidden-reasoning cleanup.
+- Bump ApplyLite to 0.16.8.
+
 # 0.16.7 - Advisory AI-content signal
 
 - Add per-document ZeroGPT checks for generated CVs and cover letters from the focused Dashboard details page.
