@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/database.js";
-import { approveLatestDegradedApplicationPackage, getArtifact, getLatestApplicationPackage, regenerateApplicationDocument } from "../services/applicationPackage.js";
+import { approveLatestDegradedApplicationPackage, getArtifact, getLatestApplicationPackage, regenerateApplicationDocument, saveApplicationPackageDetection } from "../services/applicationPackage.js";
+import { detectWithZeroGpt, sanitizedCoverLetterText, sanitizedCvText } from "../services/zeroGpt.js";
 import { z } from "zod";
 import { generatePackageWorkflow } from "../services/packageWorkflow.js";
 
@@ -12,6 +13,7 @@ const RegenerateDocumentSchema = z.object({
   tone: z.enum(["professional", "warm", "confident", "direct"]).optional(),
   length: z.enum(["short", "standard"]).optional()
 });
+const AiDetectSchema = z.object({ document: z.enum(["cv", "coverLetter"]) });
 
 export async function packageRoutes(app: FastifyInstance) {
   app.get<{ Params: { jobId: string } }>("/jobs/:jobId/application-package", async (request, reply) => {
@@ -28,6 +30,27 @@ export async function packageRoutes(app: FastifyInstance) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not approve fallback package";
       return reply.code(422).send({ error: message });
+    }
+  });
+
+  app.post<{ Params: { jobId: string } }>("/jobs/:jobId/application-package/ai-detect", async (request, reply) => {
+    const jobId = Number(request.params.jobId);
+    if (!Number.isFinite(jobId)) return reply.code(400).send({ error: "Invalid job id" });
+    try {
+      const { document } = AiDetectSchema.parse(request.body ?? {});
+      const pkg = getLatestApplicationPackage(jobId);
+      if (!pkg) return reply.code(404).send({ error: "Generate an application package before checking AI-content signals." });
+
+      const text = document === "cv"
+        ? sanitizedCvText(pkg.tailoredCv)
+        : sanitizedCoverLetterText(pkg.coverLetter);
+      const detection = await detectWithZeroGpt(text);
+      const updated = saveApplicationPackageDetection(jobId, document, detection);
+      return { document, detection, package: updated };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ZeroGPT check failed";
+      request.log.warn({ err: error, jobId }, "ZeroGPT AI-content check failed");
+      return reply.code(/captcha|human verification/i.test(message) ? 409 : 502).send({ error: message });
     }
   });
 
