@@ -864,6 +864,7 @@ export type DocumentRegenerationOptions = {
   emphasis?: "auto" | "skills" | "experience" | "projects";
   tone?: "professional" | "warm" | "confident" | "direct";
   length?: "short" | "standard";
+  flaggedPassages?: string[];
 };
 
 function resumeVariationPrompt(
@@ -875,6 +876,7 @@ function resumeVariationPrompt(
 ) {
   const style = options.cvStyle ?? "balanced";
   const emphasis = options.emphasis ?? "auto";
+  const flagged = (options.flaggedPassages ?? []).slice(0, 12).join("\n---\n");
   const variation = `
 VARIATION REQUEST:
 - Create a fresh CV variant. Keep all factual claims evidence-grounded.
@@ -884,6 +886,7 @@ VARIATION REQUEST:
 - "technical" favors relevant technical evidence; "impact" favors concrete contribution evidence; "concise" uses fewer, stronger selections; "balanced" mixes skills, experience and projects.
 - Employment/project bullet text is still selected verbatim by evidence ID; never rewrite or embellish source bullets.
 - Previous summary to vary: ${previous.summary.slice(0, 1200)}
+${flagged ? `- External detector highlighted the passages below. Treat that only as a style signal: make the generated summary/headline feel more natural and specific where evidence permits. Never rewrite source employment/project bullets or invent facts just to change a detector score.\nHIGHLIGHTED PASSAGES:\n${flagged}` : ""}
 `;
   return resumePlanPrompt(job, requirements, evidence).replace(
     "Return ONLY the resume plan. /no_think",
@@ -901,6 +904,7 @@ function coverLetterVariationPrompt(
   const tone = options.tone ?? "professional";
   const length = options.length ?? "standard";
   const previousText = previous.paragraphs.map((paragraph) => paragraph.text).join("\n").slice(0, 2600);
+  const flagged = (options.flaggedPassages ?? []).slice(0, 12).join("\n---\n");
   const variation = `
 VARIATION REQUEST:
 - Write a materially fresh version while keeping every factual statement tied to supplied evidence IDs.
@@ -910,6 +914,7 @@ VARIATION REQUEST:
 - Do not add new facts merely to make the wording different.
 - Previous version to vary:
 ${previousText}
+${flagged ? `- External detector highlighted the passages below. Use them only as a style cue: rewrite them in a more natural, specific voice while preserving exactly the same supported facts. Do not optimize blindly for a detector score and do not add unsupported claims.\nHIGHLIGHTED PASSAGES:\n${flagged}` : ""}
 `;
   return coverLetterPrompt(job, requirements, evidence).replace(
     "Return ONLY the cover letter object. /no_think",
