@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import type { CoverLetter, TailoredCv } from "@apply-lite/shared";
+import { config } from "../config.js";
 
 export type ZeroGptDocumentKind = "cv" | "coverLetter";
 export type ZeroGptDetection = {
@@ -85,27 +86,59 @@ async function hasVisibleHumanChallenge(page: import("playwright").Page) {
   return false;
 }
 
-async function waitForZeroGptScore(page: import("playwright").Page, timeoutMs = 60_000) {
+async function readZeroGptScoreText(page: import("playwright").Page) {
+  const selectors = [
+    "span.header-text.text-center",
+    ".header-text.text-center",
+    "span.header-text",
+    '[class*="header-text"]'
+  ];
+  for (const selector of selectors) {
+    const nodes = page.locator(selector);
+    const count = Math.min(await nodes.count(), 12);
+    for (let index = 0; index < count; index += 1) {
+      const node = nodes.nth(index);
+      if (!await node.isVisible().catch(() => false)) continue;
+      const value = await node.innerText().catch(() => "");
+      if (/\d+(?:\.\d+)?\s*%/.test(value) && /AI|GPT/i.test(value)) return value;
+    }
+  }
+
+  const body = await page.locator("body").innerText().catch(() => "");
+  const match = body.match(/(\d+(?:\.\d+)?)\s*%\s*(?:AI\s*GPT\*?|AI\s*(?:generated|content))/i);
+  return match?.[0] ?? "";
+}
+
+async function waitForZeroGptScore(page: import("playwright").Page, interactive: boolean, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
-  const scoreNode = page.locator("span.header-text.text-center").first();
+  let challengeSeen = false;
   while (Date.now() < deadline) {
-    if (await hasVisibleHumanChallenge(page)) {
-      throw new Error("ZeroGPT requested visible human verification. ApplyLite will not bypass CAPTCHA; complete the check manually on ZeroGPT or try again later.");
+    const challengeVisible = await hasVisibleHumanChallenge(page);
+    if (challengeVisible) {
+      challengeSeen = true;
+      if (!interactive) {
+        throw new Error("ZeroGPT requested visible human verification. ApplyLite will not bypass CAPTCHA; retry with the interactive browser or check manually.");
+      }
+      await page.bringToFront().catch(() => {});
     }
-    if (await scoreNode.isVisible().catch(() => false)) {
-      const value = await scoreNode.innerText().catch(() => "");
-      if (/\d+(?:\.\d+)?\s*%/.test(value)) return value;
-    }
+
+    const scoreText = await readZeroGptScoreText(page);
+    if (scoreText) return scoreText;
     await page.waitForTimeout(500);
   }
-  throw new Error("ZeroGPT did not return an AI percentage within 60 seconds.");
+
+  if (challengeSeen) {
+    throw new Error("ZeroGPT human verification was not completed before the check timed out. ApplyLite did not bypass it.");
+  }
+  throw new Error(`ZeroGPT did not return an AI percentage within ${Math.round(timeoutMs / 1000)} seconds.`);
 }
 
 export async function detectWithZeroGpt(text: string): Promise<ZeroGptDetection> {
   const source = text.trim();
   if (source.length < 80) throw new Error("There is not enough non-personal document text to run the AI-content check.");
 
-  const browser = await chromium.launch({ headless: true });
+  const interactive = !config.browserHeadless;
+  const browser = await chromium.launch({ headless: !interactive });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto("https://www.zerogpt.com/", { waitUntil: "domcontentloaded", timeout: 45_000 });
@@ -120,12 +153,22 @@ export async function detectWithZeroGpt(text: string): Promise<ZeroGptDetection>
       throw error;
     }
     await input.fill(source);
+    await input.dispatchEvent("input").catch(() => {});
+    await page.waitForTimeout(400);
 
     const detect = page.locator("button.scoreButton");
     await detect.waitFor({ state: "visible", timeout: 10_000 });
-    await detect.click();
+    await detect.scrollIntoViewIfNeeded().catch(() => {});
+    if (await detect.isDisabled().catch(() => false)) {
+      throw new Error("ZeroGPT Detect Text button stayed disabled after the sanitized text was entered.");
+    }
+    try {
+      await detect.click({ timeout: 10_000 });
+    } catch {
+      await detect.evaluate((element) => (element as HTMLElement).click());
+    }
 
-    const scoreText = await waitForZeroGptScore(page);
+    const scoreText = await waitForZeroGptScore(page, interactive, interactive ? 120_000 : 60_000);
     const score = parseZeroGptScore(scoreText);
 
     const highlights = uniqueHighlights(await page.locator("div.highlights-border-container mark.highlight").allInnerTexts());
