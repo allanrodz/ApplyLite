@@ -3,6 +3,7 @@ import type { ApplicationPackage, ApplicationTrackerOverview, BrowserSessionResu
 import { API_BASE, api } from "../lib/api";
 import { navigate } from "../lib/navigation";
 import { watchPackageGeneration } from "../components/PackageNotifications";
+import { TaskProgress, taskActive, type Task } from "../components/TaskProgress";
 
 type Job = JobInput & {
   id: number;
@@ -50,6 +51,29 @@ function SkillChips({ values, tone = "good" }: { values: string[]; tone?: "good"
   return <div className={className}>{values.map((value) => <span key={value}>{value}</span>)}</div>;
 }
 
+function MissingSkillChips({ values, addingSkill, onAdd }: { values: string[]; addingSkill: string; onAdd: (skill: string) => void }) {
+  if (!values.length) return <p className="muted">None identified.</p>;
+  return (
+    <div className="missing-skill-grid">
+      {values.map((value) => (
+        <span className="missing-skill-chip" key={value}>
+          <span>{value}</span>
+          <button
+            type="button"
+            className="missing-skill-add"
+            aria-label={`Add ${value} to profile`}
+            title="Add this skill to your Profile only if you genuinely have it"
+            disabled={Boolean(addingSkill)}
+            onClick={() => onAdd(value)}
+          >
+            {addingSkill === value ? "…" : "+"}
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function humanizeStatus(value: string) {
   return value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
@@ -91,6 +115,9 @@ export function DashboardPage() {
   const [browserSession, setBrowserSession] = useState<BrowserSessionResult | null>(null);
   const [browserLoading, setBrowserLoading] = useState(false);
   const [useOutcomeLearning, setUseOutcomeLearning] = useState(true);
+  const [addingSkill, setAddingSkill] = useState("");
+  const [deepTask, setDeepTask] = useState<Task | null>(null);
+  const [deepJobId, setDeepJobId] = useState<number | null>(null);
 
   async function refresh(learned = useOutcomeLearning) {
     const [jobRows, applicationRows, trackerRows] = await Promise.all([
@@ -102,6 +129,7 @@ export function DashboardPage() {
     setApplications(applicationRows);
     setTrackerOverview(trackerRows);
     setSelected((current) => current ? (jobRows.find((job) => job.id === current.id) ?? current) : null);
+    return jobRows;
   }
 
   useEffect(() => {
@@ -143,6 +171,40 @@ export function DashboardPage() {
       .then((value) => setBrowserSession(value))
       .catch(() => setBrowserSession(null));
   }, [selectedApplication?.id]);
+
+  useEffect(() => {
+    if (!deepTask || !taskActive(deepTask)) return;
+    let alive = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const next = await api<Task>(`/tasks/${deepTask.id}`);
+        if (!alive) return;
+        setDeepTask(next);
+        if (taskActive(next)) {
+          timer = window.setTimeout(poll, 1800);
+          return;
+        }
+        if (next.status === "COMPLETED") {
+          sessionStorage.removeItem("applylite:discovery-results-v2");
+          const rows = await refresh();
+          const updated = deepJobId ? rows.find((job) => job.id === deepJobId) : undefined;
+          setNotice(updated
+            ? `Deep analysis completed. Updated fit score: ${updated.score}%.`
+            : "Deep analysis completed. The focused job has been refreshed.");
+        } else if (["FAILED", "INTERRUPTED", "CANCELLED"].includes(next.status)) {
+          setError(next.error?.message ?? `Deep analysis ${next.status.toLowerCase()}.`);
+        }
+      } catch (e) {
+        if (alive) setError(e instanceof Error ? e.message : "Could not refresh deep-analysis status");
+      }
+    };
+    void poll();
+    return () => {
+      alive = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [deepTask?.id, deepTask?.status, deepJobId]);
 
   const stats = useMemo(() => ({
     opportunities: organizedJobs.filter((item) => item.bucket === "OPPORTUNITIES").length,
@@ -221,6 +283,53 @@ export function DashboardPage() {
       method: "PATCH",
       body: JSON.stringify({ status })
     });
+  }
+
+  async function addMissingSkill(skill: string) {
+    if (!selected) return;
+    const confirmed = window.confirm(
+      `Add "${skill}" to your Profile?\n\nOnly add it if you genuinely have this skill. ApplyLite will use it as a factual profile skill for future matching and application materials, and job scores may change.`
+    );
+    if (!confirmed) return;
+
+    const jobId = selected.id;
+    const before = selected.score;
+    setAddingSkill(skill);
+    setError("");
+    try {
+      const result = await api<{ added: boolean }>("/profile/skills", {
+        method: "POST",
+        body: JSON.stringify({ skill })
+      });
+      sessionStorage.removeItem("applylite:discovery-results-v2");
+      const rows = await refresh();
+      const updated = rows.find((job) => job.id === jobId);
+      if (result.added) {
+        setNotice(updated
+          ? `Added ${skill} to your Profile. This job's fit score is now ${updated.score}%${updated.score !== before ? ` (was ${before}%)` : ""}.`
+          : `Added ${skill} to your Profile.`);
+      } else {
+        setNotice(`${skill} was already in your Profile. The job score has been refreshed.`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add this skill to Profile");
+    } finally {
+      setAddingSkill("");
+    }
+  }
+
+  async function deepAnalyze(job: Job) {
+    if (deepTask && taskActive(deepTask)) return;
+    setError("");
+    setNotice("Deep analysis queued. ApplyLite will extract detailed requirements and refresh this job's score when it completes.");
+    try {
+      const task = await api<Task>(`/discovery/jobs/${job.id}/analyze`, { method: "POST", body: "{}" });
+      setDeepJobId(job.id);
+      setDeepTask(task);
+    } catch (e) {
+      setNotice("");
+      setError(e instanceof Error ? e.message : "Could not start deep analysis");
+    }
   }
 
   async function markNotPursuing(job: Job, application?: Application, trackerItem?: TrackerItem) {
@@ -501,7 +610,7 @@ export function DashboardPage() {
             <article className={`job-row ${bucket === "CLOSED" ? "job-row-closed" : ""}`} key={job.id}>
               <ScoreBadge score={job.score} />
               <button className="job-main" onClick={() => setSelected(job)}>
-                <strong>{job.title}</strong><small>{job.scoreKind === "quick" ? "Quick score (provisional)" : job.scoreKind === "deep" ? "AI-analyzed; review requirements" : "Previous score"}{job.analysisStatus === "failed" ? " - deep analysis needs retry" : ""}</small>
+                <strong>{job.title}</strong><small className={`score-confidence ${job.scoreKind === "quick" ? "quick" : job.scoreKind === "deep" ? "deep" : "previous"}`}>{job.scoreKind === "quick" ? "Quick score (provisional)" : job.scoreKind === "deep" ? "AI-analyzed; review requirements" : "Previous score"}{job.analysisStatus === "failed" ? " - deep analysis needs retry" : ""}</small>
                 <span>{job.company} · {job.location || "Location not specified"} · {job.ats || "manual"}</span>
                 <small>{job.scoreBreakdown.matchedRequiredSkills?.slice(0, 5).join(" · ") || job.scoreBreakdown.matchedSkills.slice(0, 5).join(" · ") || "Open details for the evidence-backed fit analysis"}</small>
                 {job.scoreBreakdown.baseTotal !== undefined && job.scoreBreakdown.outcomeLearningActive && (job.scoreBreakdown.outcomeAdjustment ?? 0) !== 0 && (
@@ -535,6 +644,31 @@ export function DashboardPage() {
             <h2>{selected.title}</h2>
             <p className="muted">{selected.company} · {selected.location || "Location not specified"} · {selected.ats}</p>
             {selected.sourceUrl && <a className="source-link" href={selected.sourceUrl} target="_blank" rel="noreferrer">Open original posting ↗</a>}
+            <p className={`score-confidence drawer-confidence ${selected.scoreKind === "quick" ? "quick" : selected.scoreKind === "deep" ? "deep" : "previous"}`}>
+              {selected.scoreKind === "quick"
+                ? "Quick score (provisional) — based on fast deterministic matching."
+                : selected.scoreKind === "deep"
+                  ? "AI-analyzed fit — detailed requirements extracted; still review the evidence."
+                  : "Previous score — open the evidence and re-run deep analysis if needed."}
+            </p>
+
+            <div className="dashboard-analysis-actions">
+              <button
+                type="button"
+                onClick={() => deepAnalyze(selected)}
+                disabled={Boolean(deepTask && taskActive(deepTask))}
+              >
+                {deepTask && taskActive(deepTask) && deepJobId === selected.id
+                  ? "Deep analysis running…"
+                  : selected.scoreKind === "deep"
+                    ? "Re-run deep analysis"
+                    : "Deep analyze this job"}
+              </button>
+              <small>Deep analysis can identify required/preferred skills more precisely and may update the fit score.</small>
+            </div>
+            {deepTask && deepJobId === selected.id && (
+              <TaskProgress task={deepTask} onChange={(next) => next && setDeepTask(next)} />
+            )}
 
             {selectedBucket && (
               <div className="workspace-status-bar">
@@ -584,13 +718,30 @@ export function DashboardPage() {
             <h3>Required skills matched</h3>
             <SkillChips values={selected.scoreBreakdown.matchedRequiredSkills ?? []} />
 
-            <h3>Required skills missing / unverified</h3>
-            <SkillChips values={selected.scoreBreakdown.missingRequiredSkills ?? []} tone="bad" />
+            <div className="skill-section-heading">
+              <div>
+                <h3>Required skills missing / unverified</h3>
+                <small>Add a skill only when it is genuinely part of your experience. Adding it updates your Profile and refreshes this fit score.</small>
+              </div>
+            </div>
+            <MissingSkillChips values={selected.scoreBreakdown.missingRequiredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} />
 
             {selected.requirements.preferredSkills.length > 0 && (
               <>
                 <h3>Preferred skills</h3>
                 <SkillChips values={selected.requirements.preferredSkills} tone="neutral" />
+              </>
+            )}
+
+            {(selected.scoreBreakdown.missingPreferredSkills ?? []).length > 0 && (
+              <>
+                <div className="skill-section-heading">
+                  <div>
+                    <h3>Preferred skills missing / unverified</h3>
+                    <small>If you already have one of these skills, add it to Profile and ApplyLite will refresh the score.</small>
+                  </div>
+                </div>
+                <MissingSkillChips values={selected.scoreBreakdown.missingPreferredSkills ?? []} addingSkill={addingSkill} onAdd={addMissingSkill} />
               </>
             )}
 

@@ -13,6 +13,7 @@ const {db,initializeDatabase}=await import("../src/db/database.js");
 initializeDatabase();
 const {getDiscoveryResults}=await import("../src/services/discovery.js");
 const {jobRoutes}=await import("../src/routes/jobs.js");
+const {profileRoutes}=await import("../src/routes/profile.js");
 
 const breakdown=JSON.stringify({total:50,skills:0,title:0,location:0,experience:0,preference:0,matchedSkills:[],missingSkills:[],matchedRequiredSkills:[],missingRequiredSkills:[],reasons:[],concerns:[]});
 const requirements=JSON.stringify({});
@@ -33,13 +34,29 @@ assert.equal((db.prepare("SELECT score_profile_hash AS hash FROM jobs WHERE id=1
 db.prepare("UPDATE jobs SET status='FOCUSED' WHERE id=1").run();
 const api=Fastify();
 await api.register(jobRoutes);
+await api.register(profileRoutes);
 const response=await api.inject({method:"GET",url:"/jobs?workspace=1&learned=0"});
 assert.equal(response.statusCode,200);
 const workspace=response.json();
 assert.equal(workspace.length,1,"Dashboard workspace endpoint should not load the whole discovery inbox.");
 assert.equal(workspace[0].id,1);
 
+db.prepare("UPDATE jobs SET analysis_json=?, description=? WHERE id=1")
+  .run(JSON.stringify({requiredSkills:["React"],preferredSkills:[],requiredExperienceYears:null,responsibilities:[],qualifications:[],employmentType:"",workplaceType:"unknown",seniority:"",summary:"",warnings:[]}),"Build React interfaces for customers.");
+const beforeSkillResponse=await api.inject({method:"GET",url:"/jobs?workspace=1&learned=0"});
+const beforeSkillScore=beforeSkillResponse.json()[0].score;
+const addSkill=await api.inject({method:"POST",url:"/profile/skills",payload:{skill:"React"}});
+assert.equal(addSkill.statusCode,200);
+assert.equal(addSkill.json().added,true);
+assert.deepEqual(addSkill.json().profile.skills,["React"]);
+const duplicate=await api.inject({method:"POST",url:"/profile/skills",payload:{skill:"react"}});
+assert.equal(duplicate.statusCode,200);
+assert.equal(duplicate.json().added,false,"Skill additions should be case-insensitive and idempotent.");
+const afterSkillResponse=await api.inject({method:"GET",url:"/jobs?workspace=1&learned=0"});
+const afterSkillScore=afterSkillResponse.json()[0].score;
+assert.ok(afterSkillScore>beforeSkillScore,`Adding a verified missing skill should refresh and improve the focused job score (${beforeSkillScore} -> ${afterSkillScore}).`);
+
 await api.close();
 db.close();
 fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:50});
-console.log("Fast read regression PASS: SQL-paged discovery reads are side-effect free and Dashboard only loads focused jobs.");
+console.log("Fast read regression PASS: bounded discovery reads, focused Dashboard loading, idempotent profile skill additions and immediate job rescoring.");

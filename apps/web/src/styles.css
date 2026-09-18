@@ -964,3 +964,21 @@ textarea { resize: vertical; line-height: 1.5; }
 .package-notification.failed { border-color: #ebcbc6; }
 .package-notification-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 720px) { .package-notification-stack { right: 12px; bottom: 12px; width: calc(100vw - 24px); } }
+
+
+.skill-section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-top: 28px; }
+.skill-section-heading h3 { margin: 0 0 5px; }
+.skill-section-heading small { display: block; color: #7a8698; line-height: 1.45; }
+.missing-skill-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.missing-skill-chip { position: relative; display: inline-flex; align-items: center; min-height: 34px; padding: 7px 31px 7px 10px; border-radius: 9px; background: #fff2f0; border: 1px solid #f0d4cf; color: #8f433b; font-size: 12px; font-weight: 750; }
+.missing-skill-add { position: absolute; top: 3px; right: 3px; width: 25px; height: 25px; padding: 0; display: grid; place-items: center; border-radius: 7px; border: 0; background: transparent; color: #8f433b; font-size: 18px; line-height: 1; }
+.missing-skill-add:hover { background: #f8ddd8; }
+.dashboard-analysis-actions { margin: 14px 0 4px; display: grid; gap: 7px; padding: 12px; border: 1px solid #dfe5ed; border-radius: 11px; background: #fafbfd; }
+.dashboard-analysis-actions button { justify-self: start; }
+.dashboard-analysis-actions small { color: #758195; line-height: 1.45; }
+
+.score-confidence { font-weight: 800; }
+.score-confidence.quick { color: #b42318 !important; }
+.score-confidence.deep { color: #1f7a3e !important; }
+.score-confidence.previous { color: #7a8698 !important; }
+.drawer-confidence { margin: 8px 0 2px; font-size: 12px; line-height: 1.45; }

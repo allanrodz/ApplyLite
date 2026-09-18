@@ -37,7 +37,7 @@ export function App() {
           <div className="brand-mark">A</div>
           <div>
             <strong>ApplyLite</strong>
-            <span>local job copilot - v0.16.2</span>
+            <span>local job copilot - v0.16.3</span>
           </div>
         </div>
 
