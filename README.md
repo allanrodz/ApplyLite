@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.5.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
+**Release candidate: 0.16.7.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
