@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.4.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
+**Release candidate: 0.16.5.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
@@ -41,6 +41,8 @@ The updater stages and checks code before replacement, preserves standard and le
 9. In **Dashboard**, start package generation. It runs in the background, so you can return to Discover and keep comparing jobs. A persistent in-app alert appears when the tailored CV and cover letter are ready (and a system notification is used if the browser already has notification permission). Review the package, then open the employer form for assisted filling. ApplyLite never clicks the employer's final Submit control.
 10. In a focused job's **Details**, you can run **Deep analyze this job**. Missing required/preferred skills include a **+** action; adding one requires explicit confirmation that you genuinely have the skill, writes it to Profile, and immediately refreshes that job's score. Matched skills include a **−** action; removing one explicitly suppresses it from matching until you add it back.
 11. ApplyLite checks public GitHub `main` metadata for updates. When the installed commit is behind, a red dismissible banner appears at the top with the PowerShell update command. Dismissal applies only to that remote commit, so a later merged PR makes the banner appear again. The check sends no CV/profile/job content to GitHub.
+12. Generated application packages can be refined one document at a time. CV variants can change style/emphasis while preserving evidence-grounded source bullets; cover letters can vary tone and length. Each individual regeneration creates a new audited package version rather than overwriting the prior package.
+13. Use **Preview full CV** or **Preview full letter** to read the rendered PDF inside ApplyLite without downloading it. Skill chips in focused job details also include **AI**: open a concise skill explanation and ask follow-up questions in a small job-aware tutor panel. AI explanations are educational and never prove that you possess the skill.
 
 The application remains one person's local workspace. Each friend should use their own installation and data; it is not a hosted multi-user service.
 
