@@ -1165,3 +1165,76 @@ textarea { resize: vertical; line-height: 1.5; }
 .review-document-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .review-document-actions a { display: inline-flex; align-items: center; border: 1px solid #dce3ec; border-radius: 8px; padding: 8px 10px; background: #f8fafc; color: #354864; font-size: 12px; font-weight: 800; text-decoration: none; }
 .review-document-actions a:hover { background: #eef3f8; }
+
+
+/* v0.16.7 advisory external AI-content signal */
+.ai-detector-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ai-thermometer {
+  border: 1px solid #dce3eb;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fbfcfe;
+  display: grid;
+  gap: 10px;
+}
+.ai-thermometer.low { border-color: #bedfc7; background: #f5fbf6; }
+.ai-thermometer.medium { border-color: #ead7a2; background: #fffaf0; }
+.ai-thermometer.high { border-color: #ecc5c0; background: #fff6f4; }
+.ai-thermometer-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.ai-thermometer-heading > div { display: grid; gap: 3px; }
+.ai-thermometer-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 17px;
+  font-weight: 900;
+  background: #edf1f5;
+  color: #637083;
+}
+.ai-thermometer.low .ai-thermometer-icon { background: #dff2e4; color: #23713b; }
+.ai-thermometer.medium .ai-thermometer-icon { background: #f8e9b9; color: #8a6514; }
+.ai-thermometer.high .ai-thermometer-icon { background: #f8d9d5; color: #a6382e; }
+.ai-thermometer-meter {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8edf3;
+}
+.ai-thermometer-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #8c98a9;
+  transition: width .25s ease;
+}
+.ai-thermometer.low .ai-thermometer-meter > span { background: #3c9c5c; }
+.ai-thermometer.medium .ai-thermometer-meter > span { background: #d8a62e; }
+.ai-thermometer.high .ai-thermometer-meter > span { background: #d24c3f; }
+.ai-thermometer-score { display: flex; align-items: baseline; gap: 9px; }
+.ai-thermometer-score strong { font-size: 24px; letter-spacing: -.03em; }
+.ai-thermometer-score span { color: #657185; font-size: 12px; font-weight: 800; }
+.ai-thermometer > p { margin: 0; color: #6f7b8e; font-size: 12px; line-height: 1.5; }
+.ai-highlight-details { border-top: 1px solid #e3e8ef; padding-top: 8px; }
+.ai-highlight-details summary { cursor: pointer; font-size: 12px; font-weight: 800; }
+.ai-highlight-details > div { display: grid; gap: 7px; margin-top: 9px; max-height: 190px; overflow: auto; }
+.ai-highlight-details mark {
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: #fff0a8;
+  color: #3e3520;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ai-thermometer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ai-thermometer-actions button { font-size: 12px; }
+.ai-thermometer > small { color: #8792a3; line-height: 1.4; }
+@media (max-width: 760px) {
+  .ai-detector-grid { grid-template-columns: 1fr; }
+}
