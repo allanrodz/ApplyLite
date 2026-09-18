@@ -67,6 +67,40 @@ function uniqueHighlights(values: string[]) {
   return result.slice(0, 40);
 }
 
+async function hasVisibleHumanChallenge(page: import("playwright").Page) {
+  const selectors = [
+    'iframe[src*="captcha" i]',
+    'iframe[src*="recaptcha" i]',
+    'iframe[src*="turnstile" i]',
+    '[data-sitekey]',
+    'text=/verify you are human|complete the captcha|security check/i'
+  ];
+  for (const selector of selectors) {
+    const nodes = page.locator(selector);
+    const count = Math.min(await nodes.count(), 6);
+    for (let index = 0; index < count; index += 1) {
+      if (await nodes.nth(index).isVisible().catch(() => false)) return true;
+    }
+  }
+  return false;
+}
+
+async function waitForZeroGptScore(page: import("playwright").Page, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  const scoreNode = page.locator("span.header-text.text-center").first();
+  while (Date.now() < deadline) {
+    if (await hasVisibleHumanChallenge(page)) {
+      throw new Error("ZeroGPT requested visible human verification. ApplyLite will not bypass CAPTCHA; complete the check manually on ZeroGPT or try again later.");
+    }
+    if (await scoreNode.isVisible().catch(() => false)) {
+      const value = await scoreNode.innerText().catch(() => "");
+      if (/\d+(?:\.\d+)?\s*%/.test(value)) return value;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error("ZeroGPT did not return an AI percentage within 60 seconds.");
+}
+
 export async function detectWithZeroGpt(text: string): Promise<ZeroGptDetection> {
   const source = text.trim();
   if (source.length < 80) throw new Error("There is not enough non-personal document text to run the AI-content check.");
@@ -76,27 +110,22 @@ export async function detectWithZeroGpt(text: string): Promise<ZeroGptDetection>
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto("https://www.zerogpt.com/", { waitUntil: "domcontentloaded", timeout: 45_000 });
 
-    const captcha = page.locator('iframe[src*="captcha" i], iframe[src*="recaptcha" i], iframe[src*="turnstile" i], text=/captcha|verify you are human/i');
-    if (await captcha.count()) {
-      throw new Error("ZeroGPT requested human verification. ApplyLite will not bypass CAPTCHA; open ZeroGPT manually and try again later.");
-    }
-
     const input = page.locator("textarea#textArea");
-    await input.waitFor({ state: "visible", timeout: 20_000 });
+    try {
+      await input.waitFor({ state: "visible", timeout: 20_000 });
+    } catch (error) {
+      if (await hasVisibleHumanChallenge(page)) {
+        throw new Error("ZeroGPT requested visible human verification. ApplyLite will not bypass CAPTCHA; complete the check manually on ZeroGPT or try again later.");
+      }
+      throw error;
+    }
     await input.fill(source);
 
     const detect = page.locator("button.scoreButton");
     await detect.waitFor({ state: "visible", timeout: 10_000 });
     await detect.click();
 
-    const scoreNode = page.locator("span.header-text.text-center").first();
-    await scoreNode.waitFor({ state: "visible", timeout: 60_000 });
-    await page.waitForFunction(() => {
-      const node = document.querySelector("span.header-text.text-center");
-      return Boolean(node?.textContent && /\d+(?:\.\d+)?\s*%/.test(node.textContent));
-    }, undefined, { timeout: 60_000 });
-
-    const scoreText = await scoreNode.innerText();
+    const scoreText = await waitForZeroGptScore(page);
     const score = parseZeroGptScore(scoreText);
 
     const highlights = uniqueHighlights(await page.locator("div.highlights-border-container mark.highlight").allInnerTexts());
