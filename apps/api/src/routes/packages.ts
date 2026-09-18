@@ -11,7 +11,8 @@ const RegenerateDocumentSchema = z.object({
   cvStyle: z.enum(["balanced", "technical", "impact", "concise"]).optional(),
   emphasis: z.enum(["auto", "skills", "experience", "projects"]).optional(),
   tone: z.enum(["professional", "warm", "confident", "direct"]).optional(),
-  length: z.enum(["short", "standard"]).optional()
+  length: z.enum(["short", "standard"]).optional(),
+  flaggedPassages: z.array(z.string().trim().min(1).max(800)).max(20).optional()
 });
 const AiDetectSchema = z.object({ document: z.enum(["cv", "coverLetter"]) });
 
