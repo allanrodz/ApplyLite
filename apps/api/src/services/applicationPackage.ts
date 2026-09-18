@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ApplicationPackageGenerationSchema,
   ApplicationPackageSchema,
+  ApplicationPackageDetectionSchema,
   CandidateFactsSchema,
   CoverLetterSchema,
   EvidenceAuditSchema,
@@ -821,7 +822,7 @@ export function getLatestApplicationPackage(jobId: number): ApplicationPackage |
   const row = db.prepare(`SELECT id, job_id AS jobId, status, payload_json AS payloadJson, audit_json AS auditJson, created_at AS createdAt FROM application_packages WHERE job_id = ? ORDER BY id DESC LIMIT 1`)
     .get(jobId) as { id: number; jobId: number; status: "PASS" | "REVIEW"; payloadJson: string; auditJson: string; createdAt: string } | undefined;
   if (!row) return null;
-  const payload = JSON.parse(row.payloadJson) as { tailoredCv: TailoredCv; coverLetter: CoverLetter; screeningAnswers: ScreeningAnswer[]; generation?: unknown };
+  const payload = JSON.parse(row.payloadJson) as { tailoredCv: TailoredCv; coverLetter: CoverLetter; screeningAnswers: ScreeningAnswer[]; generation?: unknown; aiDetection?: unknown };
   const audit = EvidenceAuditSchema.parse(JSON.parse(row.auditJson));
   const generation = inferGenerationFromAudit(audit, payload.generation);
   return ApplicationPackageSchema.parse({
@@ -832,6 +833,7 @@ export function getLatestApplicationPackage(jobId: number): ApplicationPackage |
     coverLetter: payload.coverLetter,
     screeningAnswers: payload.screeningAnswers,
     generation,
+    aiDetection: ApplicationPackageDetectionSchema.parse(payload.aiDetection ?? {}),
     audit,
     artifacts: artifactRows(row.id),
     createdAt: row.createdAt
@@ -839,12 +841,30 @@ export function getLatestApplicationPackage(jobId: number): ApplicationPackage |
 }
 
 
+export function saveApplicationPackageDetection(jobId: number, document: "cv" | "coverLetter", detection: unknown): ApplicationPackage {
+  const row = db.prepare(`SELECT id, payload_json AS payloadJson FROM application_packages WHERE job_id = ? ORDER BY id DESC LIMIT 1`)
+    .get(jobId) as { id: number; payloadJson: string } | undefined;
+  if (!row) throw new Error("Generate an application package before running an AI-content check.");
+
+  const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+  const current = ApplicationPackageDetectionSchema.parse(payload.aiDetection ?? {});
+  const next = ApplicationPackageDetectionSchema.parse({ ...current, [document]: detection });
+  payload.aiDetection = next;
+  db.prepare("UPDATE application_packages SET payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .run(JSON.stringify(payload), row.id);
+
+  const updated = getLatestApplicationPackage(jobId);
+  if (!updated) throw new Error("Application package could not be reloaded after the AI-content check.");
+  return updated;
+}
+
 export type DocumentRegenerationOptions = {
   document: "cv" | "coverLetter";
   cvStyle?: "balanced" | "technical" | "impact" | "concise";
   emphasis?: "auto" | "skills" | "experience" | "projects";
   tone?: "professional" | "warm" | "confident" | "direct";
   length?: "short" | "standard";
+  flaggedPassages?: string[];
 };
 
 function resumeVariationPrompt(
@@ -856,6 +876,7 @@ function resumeVariationPrompt(
 ) {
   const style = options.cvStyle ?? "balanced";
   const emphasis = options.emphasis ?? "auto";
+  const flagged = (options.flaggedPassages ?? []).slice(0, 12).join("\n---\n");
   const variation = `
 VARIATION REQUEST:
 - Create a fresh CV variant. Keep all factual claims evidence-grounded.
@@ -865,6 +886,7 @@ VARIATION REQUEST:
 - "technical" favors relevant technical evidence; "impact" favors concrete contribution evidence; "concise" uses fewer, stronger selections; "balanced" mixes skills, experience and projects.
 - Employment/project bullet text is still selected verbatim by evidence ID; never rewrite or embellish source bullets.
 - Previous summary to vary: ${previous.summary.slice(0, 1200)}
+${flagged ? `- External detector highlighted the passages below. Treat that only as a style signal: make the generated summary/headline feel more natural and specific where evidence permits. Never rewrite source employment/project bullets or invent facts just to change a detector score.\nHIGHLIGHTED PASSAGES:\n${flagged}` : ""}
 `;
   return resumePlanPrompt(job, requirements, evidence).replace(
     "Return ONLY the resume plan. /no_think",
@@ -882,6 +904,7 @@ function coverLetterVariationPrompt(
   const tone = options.tone ?? "professional";
   const length = options.length ?? "standard";
   const previousText = previous.paragraphs.map((paragraph) => paragraph.text).join("\n").slice(0, 2600);
+  const flagged = (options.flaggedPassages ?? []).slice(0, 12).join("\n---\n");
   const variation = `
 VARIATION REQUEST:
 - Write a materially fresh version while keeping every factual statement tied to supplied evidence IDs.
@@ -891,6 +914,7 @@ VARIATION REQUEST:
 - Do not add new facts merely to make the wording different.
 - Previous version to vary:
 ${previousText}
+${flagged ? `- External detector highlighted the passages below. Use them only as a style cue: rewrite them in a more natural, specific voice while preserving exactly the same supported facts. Do not optimize blindly for a detector score and do not add unsupported claims.\nHIGHLIGHTED PASSAGES:\n${flagged}` : ""}
 `;
   return coverLetterPrompt(job, requirements, evidence).replace(
     "Return ONLY the cover letter object. /no_think",
@@ -908,9 +932,11 @@ async function persistPackageVariant(
   coverLetter: CoverLetter,
   screeningAnswers: ScreeningAnswer[],
   generation: ApplicationPackageGeneration,
-  audit: EvidenceAudit
+  audit: EvidenceAudit,
+  aiDetection: unknown = {}
 ): Promise<ApplicationPackage> {
-  const payload = { tailoredCv, coverLetter, screeningAnswers, generation };
+  const detection = ApplicationPackageDetectionSchema.parse(aiDetection ?? {});
+  const payload = { tailoredCv, coverLetter, screeningAnswers, generation, aiDetection: detection };
   const result = db.prepare(`INSERT INTO application_packages (job_id, status, payload_json, audit_json) VALUES (?, ?, ?, ?)`)
     .run(jobId, audit.status, JSON.stringify(payload), JSON.stringify(audit));
   const packageId = Number(result.lastInsertRowid);
@@ -970,6 +996,7 @@ async function persistPackageVariant(
     coverLetter,
     screeningAnswers,
     generation,
+    aiDetection: detection,
     audit: finalAudit,
     artifacts: artifactRows(packageId),
     createdAt: new Date().toISOString()
@@ -1016,6 +1043,10 @@ export async function regenerateApplicationDocument(jobId: number, options: Docu
   if (audit.warnings.some((warning) => warning.startsWith("Semantic evidence audit could not complete:"))) failedStages.push("audit");
   const generation = packageGenerationFromFailures(failedStages);
 
+  const preservedDetection = options.document === "cv"
+    ? { coverLetter: previous.aiDetection.coverLetter }
+    : { cv: previous.aiDetection.cv };
+
   return persistPackageVariant(
     jobId,
     profile,
@@ -1026,7 +1057,8 @@ export async function regenerateApplicationDocument(jobId: number, options: Docu
     coverLetter,
     previous.screeningAnswers,
     generation,
-    audit
+    audit,
+    preservedDetection
   );
 }
 
@@ -1088,7 +1120,7 @@ export async function generateApplicationPackage(jobId: number): Promise<Applica
     });
   }
 
-  const initialPayload = { tailoredCv, coverLetter, screeningAnswers, generation };
+  const initialPayload = { tailoredCv, coverLetter, screeningAnswers, generation, aiDetection: {} };
   const result = db.prepare(`INSERT INTO application_packages (job_id, status, payload_json, audit_json) VALUES (?, ?, ?, ?)`)
     .run(jobId, audit.status, JSON.stringify(initialPayload), JSON.stringify(audit));
   const packageId = Number(result.lastInsertRowid);
@@ -1141,6 +1173,7 @@ export async function generateApplicationPackage(jobId: number): Promise<Applica
     coverLetter,
     screeningAnswers,
     generation,
+    aiDetection: {},
     audit,
     artifacts: artifactRows(packageId),
     createdAt: new Date().toISOString()

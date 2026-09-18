@@ -353,6 +353,24 @@ export const ApplicationPackageGenerationSchema = z.object({
 
 export type ApplicationPackageGeneration = z.infer<typeof ApplicationPackageGenerationSchema>;
 
+export const AiContentDetectionSchema = z.object({
+  provider: z.literal("zerogpt-web"),
+  score: z.number().min(0).max(100),
+  highlights: z.array(z.string()).default([]),
+  checkedAt: z.string(),
+  sourceCharacterCount: z.number().int().min(0),
+  directIdentifiersExcluded: z.boolean().default(true)
+});
+
+export type AiContentDetection = z.infer<typeof AiContentDetectionSchema>;
+
+export const ApplicationPackageDetectionSchema = z.object({
+  cv: AiContentDetectionSchema.optional(),
+  coverLetter: AiContentDetectionSchema.optional()
+}).default({});
+
+export type ApplicationPackageDetection = z.infer<typeof ApplicationPackageDetectionSchema>;
+
 export const ApplicationPackageSchema = z.object({
   id: z.number().int(),
   jobId: z.number().int(),
@@ -367,6 +385,7 @@ export const ApplicationPackageSchema = z.object({
     failedStages: [],
     message: "Generated with local AI."
   }),
+  aiDetection: ApplicationPackageDetectionSchema,
   artifacts: z.array(GeneratedArtifactSchema).default([]),
   createdAt: z.string()
 });

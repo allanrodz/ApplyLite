@@ -4,7 +4,7 @@
 
 Import a CV, review factual information, populate your profile, confirm the roles you want, and discover a broad set of opportunities. Quick discovery and profile review work **without AI**. Optional Ollama or user-configured Groq AI can extract additional facts and analyze selected jobs.
 
-**Release candidate: 0.16.5.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
+**Release candidate: 0.16.7.** Discovery is the broad inbox, Dashboard is the focused workspace, saved job views use bounded/cache-first reads, and package generation can continue in the background while you browse. The normal installer below follows `main`; this branch is for review until merged.
 
 ## Install or update the published version
 
@@ -43,6 +43,7 @@ The updater stages and checks code before replacement, preserves standard and le
 11. ApplyLite checks public GitHub `main` metadata for updates. When the installed commit is behind, a red dismissible banner appears at the top with the PowerShell update command. Dismissal applies only to that remote commit, so a later merged PR makes the banner appear again. The check sends no CV/profile/job content to GitHub.
 12. Generated application packages can be refined one document at a time. CV variants can change style/emphasis while preserving evidence-grounded source bullets; cover letters can vary tone and length. Each individual regeneration creates a new audited package version rather than overwriting the prior package.
 13. Use **Preview full CV** or **Preview full letter** to read the rendered PDF inside ApplyLite without downloading it. Skill chips in focused job details also include **AI**: open a concise skill explanation and ask follow-up questions in a small job-aware tutor panel. AI explanations are educational and never prove that you possess the skill.
+14. For generated CVs and cover letters, **Check AI-content signal** can submit a sanitized text-only version to ZeroGPT. ApplyLite excludes direct contact/header identifiers, stores the returned percentage/highlights with that package version, and shows an advisory thermometer. Detector output is not proof of authorship. Highlighted passages can be used as optional style guidance for one manual regeneration, followed by a separate re-check; ApplyLite never loops automatically to optimize against the detector. If ZeroGPT changes its page, blocks automation or asks for CAPTCHA, the check stops without bypassing it.
 
 The application remains one person's local workspace. Each friend should use their own installation and data; it is not a hosted multi-user service.
 

@@ -15,6 +15,7 @@ const {getDiscoveryResults}=await import("../src/services/discovery.js");
 const {jobRoutes}=await import("../src/routes/jobs.js");
 const {profileRoutes}=await import("../src/routes/profile.js");
 const {compareUpdate,isNewerVersion}=await import("../src/services/updateStatus.js");
+const {parseZeroGptScore,sanitizedCvText,sanitizedCoverLetterText}=await import("../src/services/zeroGpt.js");
 
 const breakdown=JSON.stringify({total:50,skills:0,title:0,location:0,experience:0,preference:0,matchedSkills:[],missingSkills:[],matchedRequiredSkills:[],missingRequiredSkills:[],reasons:[],concerns:[]});
 const requirements=JSON.stringify({});
@@ -77,7 +78,22 @@ assert.deepEqual(compareUpdate(null,"0.16.4",null,"0.16.3"),{updateAvailable:tru
 assert.equal(isNewerVersion("0.16.4","0.16.4"),false);
 assert.equal(isNewerVersion("0.17.0","0.16.9"),true);
 
+assert.equal(parseZeroGptScore("12.9%\nAI GPT*"),12.9);
+const sanitizedCv=sanitizedCvText({
+  headline:"Frontend Developer",
+  summary:"Builds accessible React products.",
+  summaryEvidenceIds:[],
+  skills:["React","TypeScript"],
+  employment:[{title:"Frontend Developer",employer:"Private Employer",startDate:"2024",endDate:"Present",location:"Dublin",bullets:[{text:"Built reusable React interfaces.",evidenceIds:[]}]}],
+  education:[{qualification:"MSc",field:"Artificial Intelligence",institution:"Private University",startDate:"2025",endDate:"2027",details:["Applied machine learning coursework."]}],
+  projects:[]
+} as any);
+assert.match(sanitizedCv,/Frontend Developer/);
+assert.match(sanitizedCv,/Built reusable React interfaces/);
+assert.doesNotMatch(sanitizedCv,/Private Employer|Private University|2024|2027|Dublin/);
+assert.equal(sanitizedCoverLetterText({salutation:"Dear Hiring Team,",paragraphs:[{text:"I am interested in this role.",evidenceIds:[]}],closing:"Kind regards,"} as any),"Dear Hiring Team,\n\nI am interested in this role.\n\nKind regards,");
+
 await api.close();
 db.close();
 fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:50});
-console.log("Fast read regression PASS: bounded reads, add/remove skill rescoring, exclusion recovery and commit/version update comparison.");
+console.log("Fast read regression PASS: bounded reads, skill rescoring, update comparison and sanitized ZeroGPT payload helpers.");

@@ -1,3 +1,15 @@
+# 0.16.7 - Advisory AI-content signal
+
+- Add per-document ZeroGPT checks for generated CVs and cover letters from the focused Dashboard details page.
+- Build a sanitized text-only detector payload that excludes the candidate name, contact header, employer names, education institutions and dates.
+- Automate only the public textarea / Detect Text / result/highlight selectors; stop rather than bypass CAPTCHA or human verification.
+- Persist the returned percentage, highlighted passages, timestamp and sanitized character count with that exact package version.
+- Add low / mixed / high visual thermometers with clear advisory-language rather than treating detector output as proof.
+- Let users regenerate one document using highlighted passages as bounded style guidance, then manually run a separate re-check.
+- Preserve evidence grounding: CV source bullets are never rewritten merely to change an external detector score.
+- Never run an automatic rewrite-until-score loop.
+- Bump ApplyLite to 0.16.7.
+
 # 0.16.5 - Document variants, full previews and skill AI
 
 - Regenerate the tailored CV or cover letter independently without rebuilding the whole application package.
