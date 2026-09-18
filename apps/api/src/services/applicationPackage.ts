@@ -838,6 +838,198 @@ export function getLatestApplicationPackage(jobId: number): ApplicationPackage |
   });
 }
 
+
+export type DocumentRegenerationOptions = {
+  document: "cv" | "coverLetter";
+  cvStyle?: "balanced" | "technical" | "impact" | "concise";
+  emphasis?: "auto" | "skills" | "experience" | "projects";
+  tone?: "professional" | "warm" | "confident" | "direct";
+  length?: "short" | "standard";
+};
+
+function resumeVariationPrompt(
+  job: JobInput,
+  requirements: JobRequirements,
+  evidence: ReturnType<typeof buildEvidence>,
+  previous: TailoredCv,
+  options: DocumentRegenerationOptions
+) {
+  const style = options.cvStyle ?? "balanced";
+  const emphasis = options.emphasis ?? "auto";
+  const variation = `
+VARIATION REQUEST:
+- Create a fresh CV variant. Keep all factual claims evidence-grounded.
+- Do not copy the previous summary wording unless necessary for factual accuracy.
+- CV style: ${style}.
+- Emphasis: ${emphasis === "auto" ? "choose the strongest job-relevant evidence" : emphasis}.
+- "technical" favors relevant technical evidence; "impact" favors concrete contribution evidence; "concise" uses fewer, stronger selections; "balanced" mixes skills, experience and projects.
+- Employment/project bullet text is still selected verbatim by evidence ID; never rewrite or embellish source bullets.
+- Previous summary to vary: ${previous.summary.slice(0, 1200)}
+`;
+  return resumePlanPrompt(job, requirements, evidence).replace(
+    "Return ONLY the resume plan. /no_think",
+    `${variation}\nReturn ONLY the resume plan. /no_think`
+  );
+}
+
+function coverLetterVariationPrompt(
+  job: JobInput,
+  requirements: JobRequirements,
+  evidence: ReturnType<typeof buildEvidence>,
+  previous: CoverLetter,
+  options: DocumentRegenerationOptions
+) {
+  const tone = options.tone ?? "professional";
+  const length = options.length ?? "standard";
+  const previousText = previous.paragraphs.map((paragraph) => paragraph.text).join("\n").slice(0, 2600);
+  const variation = `
+VARIATION REQUEST:
+- Write a materially fresh version while keeping every factual statement tied to supplied evidence IDs.
+- Tone: ${tone}.
+- Length: ${length === "short" ? "short; about 180-230 words total" : "standard; about 250-350 words total"}.
+- Avoid reusing distinctive phrasing from the previous version where a truthful alternative exists.
+- Do not add new facts merely to make the wording different.
+- Previous version to vary:
+${previousText}
+`;
+  return coverLetterPrompt(job, requirements, evidence).replace(
+    "Return ONLY the cover letter object. /no_think",
+    `${variation}\nReturn ONLY the cover letter object. /no_think`
+  );
+}
+
+async function persistPackageVariant(
+  jobId: number,
+  profile: Profile,
+  candidateName: string,
+  job: JobInput,
+  requirements: JobRequirements,
+  tailoredCv: TailoredCv,
+  coverLetter: CoverLetter,
+  screeningAnswers: ScreeningAnswer[],
+  generation: ApplicationPackageGeneration,
+  audit: EvidenceAudit
+): Promise<ApplicationPackage> {
+  const payload = { tailoredCv, coverLetter, screeningAnswers, generation };
+  const result = db.prepare(`INSERT INTO application_packages (job_id, status, payload_json, audit_json) VALUES (?, ?, ?, ?)`)
+    .run(jobId, audit.status, JSON.stringify(payload), JSON.stringify(audit));
+  const packageId = Number(result.lastInsertRowid);
+
+  const slug = `${safeFilename(job.company)}-${safeFilename(job.title)}`;
+  const relativeDir = path.join(config.storagePath, "generated", `job-${jobId}`, `package-${packageId}`);
+  const absoluteDir = path.resolve(process.cwd(), relativeDir);
+  fs.mkdirSync(absoluteDir, { recursive: true });
+
+  const files: Array<{ kind: string; filename: string; content?: string }> = [
+    { kind: "tailored_cv_txt", filename: `${slug}-cv.txt`, content: cvText(profile, tailoredCv, candidateName) },
+    { kind: "cover_letter_txt", filename: `${slug}-cover-letter.txt`, content: coverLetterText(coverLetter, candidateName) },
+    { kind: "screening_answers_txt", filename: `${slug}-screening-answers.txt`, content: screeningText(screeningAnswers) },
+    { kind: "evidence_audit_json", filename: `${slug}-evidence-audit.json`, content: JSON.stringify(audit, null, 2) },
+    { kind: "package_json", filename: `${slug}-package.json`, content: JSON.stringify({ job, requirements, ...payload, audit }, null, 2) }
+  ];
+  files.forEach((file) => fs.writeFileSync(path.join(absoluteDir, file.filename), file.content ?? "", "utf8"));
+
+  const cvPdfName = `${slug}-cv.pdf`;
+  const coverPdfName = `${slug}-cover-letter.pdf`;
+  let finalAudit = audit;
+  try {
+    await renderPdf(cvHtml(profile, tailoredCv, candidateName), path.join(absoluteDir, cvPdfName));
+    await renderPdf(coverLetterHtml(profile, job, coverLetter, candidateName), path.join(absoluteDir, coverPdfName));
+    files.unshift({ kind: "tailored_cv_pdf", filename: cvPdfName }, { kind: "cover_letter_pdf", filename: coverPdfName });
+  } catch (error) {
+    finalAudit = EvidenceAuditSchema.parse({
+      ...audit,
+      status: "REVIEW",
+      warnings: [...audit.warnings, `PDF rendering failed: ${error instanceof Error ? error.message : "unknown error"}. Text artifacts are still available.`]
+    });
+    db.prepare("UPDATE application_packages SET status = ?, audit_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(finalAudit.status, JSON.stringify(finalAudit), packageId);
+    fs.writeFileSync(path.join(absoluteDir, `${slug}-evidence-audit.json`), JSON.stringify(finalAudit, null, 2), "utf8");
+  }
+
+  const insertArtifact = db.prepare("INSERT INTO generated_artifacts (job_id, package_id, kind, path, metadata_json) VALUES (?, ?, ?, ?, ?)");
+  const tx = db.transaction(() => {
+    for (const file of files) {
+      const filePath = path.join(relativeDir, file.filename).replaceAll("\\", "/");
+      insertArtifact.run(jobId, packageId, file.kind, filePath, JSON.stringify({ filename: file.filename }));
+    }
+  });
+  tx();
+
+  db.prepare(`
+    UPDATE application_prep_queue
+    SET package_id = ?, audit_status = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE job_id = ? AND status IN ('READY', 'NEEDS_REVIEW')
+  `).run(packageId, finalAudit.status, finalAudit.status === "PASS" ? "READY" : "NEEDS_REVIEW", jobId);
+
+  return ApplicationPackageSchema.parse({
+    id: packageId,
+    jobId,
+    status: finalAudit.status,
+    tailoredCv,
+    coverLetter,
+    screeningAnswers,
+    generation,
+    audit: finalAudit,
+    artifacts: artifactRows(packageId),
+    createdAt: new Date().toISOString()
+  });
+}
+
+export async function regenerateApplicationDocument(jobId: number, options: DocumentRegenerationOptions): Promise<ApplicationPackage> {
+  const previous = getLatestApplicationPackage(jobId);
+  if (!previous) throw new Error("Generate an application package before regenerating an individual document.");
+
+  const profile = loadProfile();
+  const candidateDocument = loadCandidateDocument();
+  const facts = candidateDocument.facts;
+  const candidateName = resolveCandidateName(profile, facts, candidateDocument.rawText, candidateDocument.sourceName);
+  const { job, requirements } = loadJob(jobId);
+  const evidence = buildEvidence(profile, facts, job, requirements);
+
+  await ensureOllamaReady();
+
+  let tailoredCv = previous.tailoredCv;
+  let coverLetter = previous.coverLetter;
+  let clearedStage: ApplicationPackageGeneration["failedStages"][number];
+
+  if (options.document === "cv") {
+    const raw = await askOllamaStructured<unknown>(
+      resumeVariationPrompt(job, requirements, evidence, previous.tailoredCv, options),
+      z.toJSONSchema(ResumePlanSchema),
+      { numPredict: 1500, numCtx: 8192, timeoutMs: 120_000 }
+    );
+    tailoredCv = hydrateResume(ResumePlanSchema.parse(raw), job, profile, facts, evidence.all);
+    clearedStage = "resume";
+  } else {
+    const raw = await askOllamaStructured<unknown>(
+      coverLetterVariationPrompt(job, requirements, evidence, previous.coverLetter, options),
+      z.toJSONSchema(CoverLetterSchema),
+      { numPredict: 1000, numCtx: 8192, timeoutMs: 90_000 }
+    );
+    coverLetter = CoverLetterSchema.parse(raw);
+    clearedStage = "cover-letter";
+  }
+
+  const audit = await auditGeneratedClaims(claimsForAudit(tailoredCv, coverLetter, previous.screeningAnswers), evidence.all);
+  const failedStages = previous.generation.failedStages.filter((stage) => stage !== clearedStage && stage !== "audit");
+  if (audit.warnings.some((warning) => warning.startsWith("Semantic evidence audit could not complete:"))) failedStages.push("audit");
+  const generation = packageGenerationFromFailures(failedStages);
+
+  return persistPackageVariant(
+    jobId,
+    profile,
+    candidateName,
+    job,
+    requirements,
+    tailoredCv,
+    coverLetter,
+    previous.screeningAnswers,
+    generation,
+    audit
+  );
+}
+
 export async function generateApplicationPackage(jobId: number): Promise<ApplicationPackage> {
   const profile = loadProfile();
   const candidateDocument = loadCandidateDocument();
