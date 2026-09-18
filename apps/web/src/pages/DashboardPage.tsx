@@ -140,6 +140,47 @@ function PackageDocumentPreview({ pkg, kind, onClose }: { pkg: ApplicationPackag
   );
 }
 
+
+function AiContentThermometer({ label, detection, loading, onCheck, onRegenerate }: {
+  label: string;
+  detection: ApplicationPackage["aiDetection"]["cv"] | undefined;
+  loading: boolean;
+  onCheck: () => void;
+  onRegenerate: () => void;
+}) {
+  const score = detection?.score;
+  const band = score === undefined ? "unknown" : score < 20 ? "low" : score < 50 ? "medium" : "high";
+  const icon = band === "low" ? "✓" : band === "medium" ? "!" : band === "high" ? "⚠" : "○";
+  const headline = band === "low" ? "Low AI-content signal" : band === "medium" ? "Mixed AI-content signal" : band === "high" ? "High AI-content signal" : "Not checked";
+  return (
+    <section className={`ai-thermometer ${band}`}>
+      <div className="ai-thermometer-heading">
+        <div><span className="eyebrow">ZEROGPT · ADVISORY ONLY</span><strong>{label}</strong></div>
+        <span className="ai-thermometer-icon" aria-hidden="true">{icon}</span>
+      </div>
+      <div className="ai-thermometer-meter" aria-label={score === undefined ? "Not checked" : `${score}% AI-content signal`}>
+        <span style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }} />
+      </div>
+      <div className="ai-thermometer-score">
+        <strong>{score === undefined ? "—" : `${score.toFixed(1)}%`}</strong>
+        <span>{headline}</span>
+      </div>
+      <p>ZeroGPT is an external heuristic detector, not proof that text was or was not written by AI. ApplyLite removes direct personal/contact details before sending text.</p>
+      {detection?.highlights.length ? (
+        <details className="ai-highlight-details">
+          <summary>{detection.highlights.length} passage{detection.highlights.length === 1 ? "" : "s"} highlighted</summary>
+          <div>{detection.highlights.map((text, index) => <mark key={index}>{text}</mark>)}</div>
+        </details>
+      ) : detection ? <small>No highlighted passages were returned.</small> : null}
+      <div className="ai-thermometer-actions">
+        <button type="button" onClick={onCheck} disabled={loading}>{loading ? "Checking ZeroGPT…" : detection ? "Check again" : "Check AI-content signal"}</button>
+        {detection?.highlights.length ? <button type="button" onClick={onRegenerate} disabled={loading}>Regenerate using highlighted passages</button> : null}
+      </div>
+      {detection && <small>Checked {new Date(detection.checkedAt).toLocaleString()} · {detection.sourceCharacterCount.toLocaleString()} characters sent after direct identifiers were excluded.</small>}
+    </section>
+  );
+}
+
 function SkillAiPanel({ skill, messages, loading, question, onQuestion, onAsk, onClose }: {
   skill: string;
   messages: SkillChatMessage[];
@@ -217,6 +258,7 @@ export function DashboardPage() {
   const [letterTone, setLetterTone] = useState<"professional" | "warm" | "confident" | "direct">("professional");
   const [letterLength, setLetterLength] = useState<"short" | "standard">("standard");
   const [previewKind, setPreviewKind] = useState<PreviewKind | null>(null);
+  const [aiDetectionLoading, setAiDetectionLoading] = useState<PreviewKind | "">("");
   const [skillAiSkill, setSkillAiSkill] = useState("");
   const [skillAiMessages, setSkillAiMessages] = useState<SkillChatMessage[]>([]);
   const [skillAiLoading, setSkillAiLoading] = useState(false);
@@ -468,15 +510,18 @@ export function DashboardPage() {
     }
   }
 
-  async function regenerateDocument(kind: PreviewKind) {
+  async function regenerateDocument(kind: PreviewKind, useDetectorHighlights = false) {
     if (!selected || !applicationPackage) return;
     setDocumentLoading(kind);
     setError("");
     setNotice(kind === "cv" ? "Generating a fresh CV variant and re-running the evidence audit…" : "Writing a fresh cover-letter variant and re-running the evidence audit…");
     try {
+      const highlights = useDetectorHighlights
+        ? (kind === "cv" ? applicationPackage.aiDetection.cv?.highlights : applicationPackage.aiDetection.coverLetter?.highlights) ?? []
+        : [];
       const body = kind === "cv"
-        ? { document: "cv", cvStyle, emphasis: cvEmphasis }
-        : { document: "coverLetter", tone: letterTone, length: letterLength };
+        ? { document: "cv", cvStyle, emphasis: cvEmphasis, flaggedPassages: highlights }
+        : { document: "coverLetter", tone: letterTone, length: letterLength, flaggedPassages: highlights };
       const next = await api<ApplicationPackage>(`/jobs/${selected.id}/application-package/regenerate`, { method: "POST", body: JSON.stringify(body) });
       setApplicationPackage(next);
       setNotice(`${kind === "cv" ? "CV" : "Cover letter"} regenerated. Review the full preview and evidence audit before use.`);
@@ -486,6 +531,31 @@ export function DashboardPage() {
       setNotice("");
     } finally {
       setDocumentLoading("");
+    }
+  }
+
+  async function checkAiContent(kind: PreviewKind) {
+    if (!selected || !applicationPackage) return;
+    const confirmed = window.confirm(
+      `Check the ${kind === "cv" ? "CV" : "cover letter"} with ZeroGPT?\n\nApplyLite will send a sanitized text-only version to zerogpt.com. Direct contact/personal header details are excluded. ZeroGPT is a third-party service and its score is only an advisory heuristic.`
+    );
+    if (!confirmed) return;
+
+    setAiDetectionLoading(kind);
+    setError("");
+    setNotice("Sending sanitized document text to ZeroGPT and reading the advisory AI-content signal…");
+    try {
+      const result = await api<{ document: PreviewKind; detection: ApplicationPackage["aiDetection"]["cv"]; package: ApplicationPackage }>(
+        `/jobs/${selected.id}/application-package/ai-detect`,
+        { method: "POST", body: JSON.stringify({ document: kind }) }
+      );
+      setApplicationPackage(result.package);
+      setNotice(`ZeroGPT returned ${result.detection?.score.toFixed(1)}% for the ${kind === "cv" ? "CV" : "cover letter"}. Treat this as an advisory signal, not a factual verdict.`);
+    } catch (e) {
+      setNotice("");
+      setError(e instanceof Error ? e.message : "Could not complete the ZeroGPT check");
+    } finally {
+      setAiDetectionLoading("");
     }
   }
 
@@ -1016,6 +1086,25 @@ export function DashboardPage() {
                     <button type="button" disabled={Boolean(documentLoading)} onClick={() => regenerateDocument("coverLetter")}>{documentLoading === "coverLetter" ? "Regenerating letter…" : "Regenerate cover letter only"}</button>
                     <small>A new wording variant is generated without inventing candidate facts, then the evidence audit runs again.</small>
                   </section>
+                </div>
+              )}
+
+              {applicationPackage && (
+                <div className="ai-detector-grid">
+                  <AiContentThermometer
+                    label="Tailored CV"
+                    detection={applicationPackage.aiDetection.cv}
+                    loading={aiDetectionLoading === "cv"}
+                    onCheck={() => checkAiContent("cv")}
+                    onRegenerate={() => regenerateDocument("cv", true)}
+                  />
+                  <AiContentThermometer
+                    label="Cover letter"
+                    detection={applicationPackage.aiDetection.coverLetter}
+                    loading={aiDetectionLoading === "coverLetter"}
+                    onCheck={() => checkAiContent("coverLetter")}
+                    onRegenerate={() => regenerateDocument("coverLetter", true)}
+                  />
                 </div>
               )}
 
